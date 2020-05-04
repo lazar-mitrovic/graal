@@ -26,7 +26,7 @@ package com.oracle.svm.truffle.nfi.posix;
 
 import static com.oracle.svm.core.posix.headers.Dlfcn.GNUExtensions.LM_ID_NEWLM;
 
-import com.oracle.svm.core.c.libc.LibCBase;
+import org.graalvm.compiler.api.replacements.Fold;
 import org.graalvm.nativeimage.ImageSingletons;
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
@@ -38,6 +38,7 @@ import org.graalvm.word.PointerBase;
 import org.graalvm.word.WordFactory;
 
 import com.oracle.svm.core.annotate.AutomaticFeature;
+import com.oracle.svm.core.c.libc.LibCBase;
 import com.oracle.svm.core.jdk.PlatformNativeLibrarySupport;
 import com.oracle.svm.core.posix.PosixUtils;
 import com.oracle.svm.core.posix.headers.Dlfcn;
@@ -65,15 +66,20 @@ final class PosixTruffleNFISupport extends TruffleNFISupport {
     private static final int ISOLATED_NAMESPACE_FLAG = 0x10000;
     private static final int ISOLATED_NAMESPACE_NOT_SUPPORTED_FLAG = 0;
 
-    static int isolatedNamespaceFlag;
+    final int isolatedNamespaceFlag;
+
+    @Fold
+    public static PosixTruffleNFISupport singleton() {
+        return (PosixTruffleNFISupport) ImageSingletons.lookup(TruffleNFISupport.class);
+    }
 
     static void initialize() {
-        isolatedNamespaceFlag = LibCBase.singleton().hasIsolatedNamespaces() ? ISOLATED_NAMESPACE_FLAG : ISOLATED_NAMESPACE_NOT_SUPPORTED_FLAG;
         ImageSingletons.add(TruffleNFISupport.class, new PosixTruffleNFISupport());
     }
 
     private PosixTruffleNFISupport() {
         super(getErrnoGetterFunctionName());
+        isolatedNamespaceFlag = LibCBase.singleton().hasIsolatedNamespaces() ? ISOLATED_NAMESPACE_FLAG : ISOLATED_NAMESPACE_NOT_SUPPORTED_FLAG;
     }
 
     private static String getErrnoGetterFunctionName() {
@@ -102,7 +108,7 @@ final class PosixTruffleNFISupport extends TruffleNFISupport {
      * A single linking namespace is created lazily and registered on the NFI context instance.
      */
     private static PointerBase loadLibraryInNamespace(long nativeContext, String name, int mode) {
-        assert (mode & isolatedNamespaceFlag) == 0;
+        assert (mode & singleton().isolatedNamespaceFlag) == 0;
         Target_com_oracle_truffle_nfi_impl_NFIContextLinux context = //
                         KnownIntrinsics.convertUnknownValue(getContext(nativeContext), Target_com_oracle_truffle_nfi_impl_NFIContextLinux.class);
 
@@ -141,7 +147,8 @@ final class PosixTruffleNFISupport extends TruffleNFISupport {
     @Override
     protected long loadLibraryImpl(long nativeContext, String name, int flags) {
         PointerBase handle;
-        if (Platform.includedIn(Platform.LINUX.class) && (flags & isolatedNamespaceFlag) != 0) {
+        if (Platform.includedIn(Platform.LINUX.class) && isolatedNamespaceFlag == ISOLATED_NAMESPACE_FLAG // constant folding
+                && (flags & isolatedNamespaceFlag) != 0) {
             handle = loadLibraryInNamespace(nativeContext, name, flags & ~isolatedNamespaceFlag);
         } else {
             handle = PosixUtils.dlopen(name, flags);
