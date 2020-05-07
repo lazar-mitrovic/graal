@@ -108,7 +108,7 @@ final class PosixTruffleNFISupport extends TruffleNFISupport {
      * A single linking namespace is created lazily and registered on the NFI context instance.
      */
     private static PointerBase loadLibraryInNamespace(long nativeContext, String name, int mode) {
-        assert (mode & singleton().isolatedNamespaceFlag) == 0;
+        assert (LibCBase.singleton().hasIsolatedNamespaces()) == false;
         Target_com_oracle_truffle_nfi_impl_NFIContextLinux context = //
                         KnownIntrinsics.convertUnknownValue(getContext(nativeContext), Target_com_oracle_truffle_nfi_impl_NFIContextLinux.class);
 
@@ -147,8 +147,7 @@ final class PosixTruffleNFISupport extends TruffleNFISupport {
     @Override
     protected long loadLibraryImpl(long nativeContext, String name, int flags) {
         PointerBase handle;
-        if (Platform.includedIn(Platform.LINUX.class) && isolatedNamespaceFlag == ISOLATED_NAMESPACE_FLAG // constant folding
-                && (flags & isolatedNamespaceFlag) != 0) {
+        if (Platform.includedIn(Platform.LINUX.class) && LibCBase.singleton().hasIsolatedNamespaces()) {
             handle = loadLibraryInNamespace(nativeContext, name, flags & ~isolatedNamespaceFlag);
         } else {
             handle = PosixUtils.dlopen(name, flags);
