@@ -398,16 +398,16 @@ final class NativeImageServer extends NativeImage {
                     maxServers = Math.max(1, Integer.parseInt(maxServersStr));
                 }
 
-                /* Maximize reuse by using same VM mem-args for all server-based image builds */
-                String xmxValueStr = getXmxValue(maxServers);
-                replaceArg(javaArgs, oXmx, xmxValueStr);
-                String xmsValueStr = getXmsValue();
-                long xmxValue = SubstrateOptionsParser.parseLong(xmxValueStr);
-                long xmsValue = SubstrateOptionsParser.parseLong(xmsValueStr);
-                if (WordFactory.unsigned(xmsValue).aboveThan(WordFactory.unsigned(xmxValue))) {
-                    xmsValueStr = Long.toUnsignedString(xmxValue);
+                /* Perform JavaArgs consolidation - take the maximum of -Xmx, minimum of -Xms */
+                Long xmxValue = consolidateArgs(javaArgs, oXmx, SubstrateOptionsParser::parseLong, String::valueOf, () -> 0L, Math::max);
+                Long xmsValue = consolidateArgs(javaArgs, oXms, SubstrateOptionsParser::parseLong, String::valueOf, () -> SubstrateOptionsParser.parseLong(getXmsValue()), Math::max);
+                if (Long.compareUnsigned(xmsValue, xmxValue) > 0) {
+                    replaceArg(javaArgs, oXms, Long.toUnsignedString(xmxValue));
                 }
-                replaceArg(javaArgs, oXms, xmsValueStr);
+                replaceArg(javaArgs, oXmx, Long.toUnsignedString(xmxValue));
+
+                /* Maximize reuse by using same VM mem-args for all server-based image builds */
+
 
                 Path sessionDir = getSessionDir();
                 List<Collection<Path>> builderPaths = new ArrayList<>(Arrays.asList(classpath, bootClasspath));
