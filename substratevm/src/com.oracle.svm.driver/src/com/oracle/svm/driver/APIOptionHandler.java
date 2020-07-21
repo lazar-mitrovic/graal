@@ -54,7 +54,7 @@ import com.oracle.svm.hosted.option.HostedOptionParser;
 import com.oracle.svm.util.ReflectionUtil;
 import com.oracle.svm.util.ReflectionUtil.ReflectionUtilError;
 
-class APIOptionHandler extends NativeImage.OptionHandler<NativeImage> {
+class APIOptionHandler extends OptionHandler<NativeImage> {
 
     static final class OptionInfo {
         final String builderOption;

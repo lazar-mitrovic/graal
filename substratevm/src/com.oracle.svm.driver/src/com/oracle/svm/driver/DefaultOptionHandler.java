@@ -36,7 +36,7 @@ import org.graalvm.compiler.options.OptionType;
 import com.oracle.svm.core.SubstrateOptions;
 import com.oracle.svm.driver.MacroOption.MacroOptionKind;
 
-class DefaultOptionHandler extends NativeImage.OptionHandler<NativeImage> {
+class DefaultOptionHandler extends OptionHandler<NativeImage> {
 
     private static final String verboseOption = "--verbose";
     private static final String requireValidJarFileMessage = "-jar requires a valid jarfile";

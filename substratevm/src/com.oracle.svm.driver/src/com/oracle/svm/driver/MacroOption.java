@@ -42,8 +42,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import com.oracle.svm.driver.NativeImage.BuildConfiguration;
-
 final class MacroOption {
     enum MacroOptionKind {
         Language("languages", true),

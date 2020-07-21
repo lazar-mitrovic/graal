@@ -35,9 +35,8 @@ import com.oracle.svm.core.util.ClasspathUtils;
 import com.oracle.svm.driver.MacroOption.AddedTwiceException;
 import com.oracle.svm.driver.MacroOption.InvalidMacroException;
 import com.oracle.svm.driver.MacroOption.VerboseInvalidMacroException;
-import com.oracle.svm.driver.NativeImage.BuildConfiguration;
 
-class MacroOptionHandler extends NativeImage.OptionHandler<NativeImage> {
+class MacroOptionHandler extends OptionHandler<NativeImage> {
 
     MacroOptionHandler(NativeImage nativeImage) {
         super(nativeImage);

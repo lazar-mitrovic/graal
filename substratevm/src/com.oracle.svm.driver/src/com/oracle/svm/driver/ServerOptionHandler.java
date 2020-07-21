@@ -27,7 +27,7 @@ package com.oracle.svm.driver;
 import java.util.List;
 import java.util.Queue;
 
-class ServerOptionHandler extends NativeImage.OptionHandler<NativeImageServer> {
+class ServerOptionHandler extends OptionHandler<NativeImageServer> {
 
     private static final String helpTextServer = NativeImage.getResource("/HelpServer.txt");
     private static final String enableServerOption = "--experimental-build-server";
