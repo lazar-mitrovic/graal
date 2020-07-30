@@ -869,6 +869,30 @@ mx_sdk_vm.register_graalvm_component(mx_sdk_vm.GraalVmJreComponent(
 
 mx_sdk_vm.register_graalvm_component(mx_sdk_vm.GraalVmJreComponent(
     suite=suite,
+    name='CAP tool',
+    short_name='ct',
+    dir_name='svm',
+    installable_id='cap-tool',
+    license_files=[],
+    third_party_license_files=[],
+    dependencies=['SubstrateVM', 'nil'],
+    support_distributions=['substratevm:NATIVE_IMAGE_GRAALVM_SUPPORT'],
+    launcher_configs=[
+        mx_sdk_vm.LauncherConfig(
+            destination="bin/<exe:cap-tool>",
+            jar_distributions=["substratevm:SVM_CAP_TOOL"],
+            main_class="com.oracle.svm.driver.CapTool",
+            build_args=[],
+            extra_jvm_args=_native_image_launcher_extra_jvm_args(),
+        ),
+    ],
+    library_configs=[],
+    provided_executables=['bin/<cmd:rebuild-images>'],
+    installable=True,
+))
+
+mx_sdk_vm.register_graalvm_component(mx_sdk_vm.GraalVmJreComponent(
+    suite=suite,
     name='Native Image licence files',
     short_name='nil',
     dir_name='svm',

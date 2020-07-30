@@ -1062,6 +1062,20 @@ suite = {
             ],
             # vm: included as binary, tool descriptor intentionally not copied
         },
+        
+        "SVM_CAP_TOOL": {
+            "subDir": "src",
+            "description" : "SubstrateVM CAP cache tool",
+            "mainClass": "com.oracle.svm.driver.CapTool",
+            "dependencies": [
+                "com.oracle.svm.driver",
+                "svm-compiler-flags-builder"
+            ],
+            "distDependencies": [
+                "LIBRARY_SUPPORT",
+            ],
+        },
+
 
         "SVM_CONFIGURE": {
             "subDir": "src",
