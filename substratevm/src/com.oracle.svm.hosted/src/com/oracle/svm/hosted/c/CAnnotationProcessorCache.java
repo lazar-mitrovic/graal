@@ -75,7 +75,8 @@ public final class CAnnotationProcessorCache {
             @Override
             public Boolean getValueOrDefault(UnmodifiableEconomicMap<OptionKey<?>, Object> values) {
                 if (!values.containsKey(this)) {
-                    return !ImageSingletons.lookup(Platform.class).getArchitecture().equals(System.getProperty("os.arch"));
+                    return !NewCAPCache.getValue() && !ExitAfterQueryCodeGeneration.getValue() &&
+                            !ImageSingletons.lookup(Platform.class).getArchitecture().equals(System.getProperty("os.arch"));
                     // We need CAP cache for cross-arch builds, since we cannot run query code.
                 }
                 return (Boolean) values.get(this);
@@ -109,7 +110,8 @@ public final class CAnnotationProcessorCache {
 
     public CAnnotationProcessorCache() {
         if ((Options.UseCAPCache.getValue() || Options.NewCAPCache.getValue())) {
-            if (Options.CAPCacheDir.getValue() == null || Options.CAPCacheDir.getValue().isEmpty()) {
+            if (!Options.ExitAfterQueryCodeGeneration.getValue() &&
+                    (Options.CAPCacheDir.getValue() == null || Options.CAPCacheDir.getValue().isEmpty())) {
                 throw UserError.abort("Path to C Annotation Processor Cache must be specified using %s when the option %s or %s is used.",
                                 SubstrateOptionsParser.commandArgument(Options.CAPCacheDir, ""), SubstrateOptionsParser.commandArgument(Options.UseCAPCache, "+"),
                                 SubstrateOptionsParser.commandArgument(Options.NewCAPCache, "+"));
