@@ -95,7 +95,7 @@ public interface Platform {
      * @since 20.3
      */
     default String getOS() {
-        throw new UnsupportedOperationException("Platform doesn't implement getOS");
+        throw new UnsupportedOperationException("Platform `"+this.getClass().getCanonicalName()+"`, doesn't implement getOS");
     }
 
     /**
@@ -108,7 +108,7 @@ public interface Platform {
      * @since 20.3
      */
     default String getArchitecture() {
-        throw new UnsupportedOperationException("Platform doesn't implement getArchitecture");
+        throw new UnsupportedOperationException("Platform `"+this.getClass().getCanonicalName()+"`, doesn't implement getArchitecture");
     }
 
     /*
@@ -229,7 +229,7 @@ public interface Platform {
      *
      * @since 19.0
      */
-    class LINUX_AMD64 implements LINUX_BASE, AMD64 {
+    class LINUX_AMD64 implements LINUX, AMD64 {
 
         /**
          * Instantiates a marker instance of this platform.
@@ -246,7 +246,7 @@ public interface Platform {
      *
      * @since 19.0
      */
-    final class LINUX_AARCH64 implements LINUX_BASE, AARCH64 {
+    final class LINUX_AARCH64 implements LINUX, AARCH64 {
 
         /**
          * Instantiates a marker instance of this platform.
@@ -280,7 +280,7 @@ public interface Platform {
      *
      * @since 19.0
      */
-    final class DARWIN_AMD64 implements DARWIN_BASE, AMD64 {
+    final class DARWIN_AMD64 implements DARWIN, AMD64 {
 
         /**
          * Instantiates a marker instance of this platform.
@@ -296,7 +296,7 @@ public interface Platform {
      *
      * @since 2.0
      */
-    final class DARWIN_AARCH64 implements DARWIN_BASE, AARCH64 {
+    final class DARWIN_AARCH64 implements DARWIN, AARCH64 {
 
         /**
          * Instantiates a marker instance of this platform.

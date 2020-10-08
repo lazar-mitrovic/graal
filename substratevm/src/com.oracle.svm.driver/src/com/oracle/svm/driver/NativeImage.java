@@ -1254,7 +1254,7 @@ public class NativeImage {
     private void addTargetArguments() {
         /*
          * Since regular hosted options are parsed at a later phase of NativeImageGeneratorRunner
-         * process (see comments for NativeImageGenerator.defaultPlatform), we are parsing the
+         * process (see comments for NativeImageGenerator.getTargetPlatform), we are parsing the
          * --target argument here, and generating required internal arguments.
          */
 

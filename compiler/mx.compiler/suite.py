@@ -2354,6 +2354,7 @@ suite = {
           "org.graalvm.compiler.truffle.runtime.TruffleTypes",
           "org.graalvm.compiler.truffle.runtime.EngineCacheSupport",
           "org.graalvm.home.HomeFinder",
+          "org.graalvm.nativeimage.Platform"
         ],
         "requiresConcealed" : {
           "jdk.internal.vm.ci" : "*"
