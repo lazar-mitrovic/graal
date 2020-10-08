@@ -56,6 +56,9 @@ public class WindowsSystemPropertiesSupport extends SystemPropertiesSupport {
     /* Null-terminated wide-character string. */
     private static final byte[] USERNAME = "USERNAME\0".getBytes(StandardCharsets.UTF_16LE);
 
+    private static final int VER_PLATFORM_WIN32_WINDOWS = 1;
+    private static final int VER_PLATFORM_WIN32_NT = 2;
+
     @Override
     protected String userNameValue() {
         WCharPointer userName = LibC._wgetenv(NonmovableArrays.addressOf(NonmovableArrays.fromImageHeap(USERNAME), 0));
@@ -120,6 +123,139 @@ public class WindowsSystemPropertiesSupport extends SystemPropertiesSupport {
 
     private static String toJavaString(WCharPointer wcString, UnsignedWord length) {
         return CTypeConversion.toJavaString((CCharPointer) wcString, SizeOf.unsigned(WCharPointer.class).multiply(length), StandardCharsets.UTF_16LE);
+    }
+
+    @Override
+    protected String osNameValue() {
+        /*
+         * Reimplementation of code from java_props_md.c
+         */
+        SysinfoAPI.OSVERSIONINFOEX ver = StackValue.get(SysinfoAPI.OSVERSIONINFOEX.class);
+        ver.set_dwOSVersionInfoSize(SizeOf.get(SysinfoAPI.OSVERSIONINFOEX.class));
+        SysinfoAPI.GetVersionEx(ver);
+
+        int majorVersion = ver.dwMajorVersion();
+        int minorVersion = ver.dwMinorVersion();
+
+        int buildNumber = ver.dwBuildNumber();
+        boolean is_workstation = (ver.wProductType() == 0x00000001);
+        boolean is_64bit = true; // ATM we only support 64-bit Windows OS's
+        int platformId = ver.dwPlatformId();
+
+        String os_name;
+
+        // Following code segment is explained on OSVERSIONINFOEX's MSDN page
+        switch (platformId) {
+            case VER_PLATFORM_WIN32_WINDOWS:
+                if (majorVersion == 4) {
+                    switch (minorVersion) {
+                        case 0:
+                            os_name = "Windows 95";
+                            break;
+                        case 10:
+                            os_name = "Windows 98";
+                            break;
+                        case 90:
+                            os_name = "Windows Me";
+                            break;
+                        default:
+                            os_name = "Windows 9X (unknown)";
+                            break;
+                    }
+                } else {
+                    os_name = "Windows 9X (unknown)";
+                }
+                break;
+            case VER_PLATFORM_WIN32_NT:
+                if (majorVersion <= 4) {
+                    os_name = "Windows NT";
+                } else if (majorVersion == 5) {
+                    switch (minorVersion) {
+                        case 0:
+                            os_name = "Windows 2000";
+                            break;
+                        case 1:
+                            os_name = "Windows XP";
+                            break;
+                        case 2:
+                            if (is_workstation && is_64bit) {
+                                os_name = "Windows XP"; /* 64 bit */
+                            } else {
+                                os_name = "Windows 2003";
+                            }
+                            break;
+                        default:
+                            os_name = "Windows NT (unknown)";
+                            break;
+                    }
+                } else if (majorVersion == 6) {
+                    if (is_workstation) {
+                        switch (minorVersion) {
+                            case 0:
+                                os_name = "Windows Vista";
+                                break;
+                            case 1:
+                                os_name = "Windows 7";
+                                break;
+                            case 2:
+                                os_name = "Windows 8";
+                                break;
+                            case 3:
+                                os_name = "Windows 8.1";
+                                break;
+                            default:
+                                os_name = "Windows NT (unknown)";
+                        }
+                    } else {
+                        switch (minorVersion) {
+                            case 0:
+                                os_name = "Windows Server 2008";
+                                break;
+                            case 1:
+                                os_name = "Windows Server 2008 R2";
+                                break;
+                            case 2:
+                                os_name = "Windows Server 2012";
+                                break;
+                            case 3:
+                                os_name = "Windows Server 2012 R2";
+                                break;
+                            default:
+                                os_name = "Windows NT (unknown)";
+                        }
+                    }
+                } else if (majorVersion == 10) {
+                    if (is_workstation) {
+                        switch (minorVersion) {
+                            case 0:
+                                os_name = "Windows 10";
+                                break;
+                            default:
+                                os_name = "Windows NT (unknown)";
+                        }
+                    } else {
+                        switch (minorVersion) {
+                            case 0:
+                                if (buildNumber > 17762) {
+                                    os_name = "Windows Server 2019";
+                                } else {
+                                    os_name = "Windows Server 2016";
+                                }
+                                break;
+                            default:
+                                os_name = "Windows NT (unknown)";
+                        }
+                    }
+                } else {
+                    os_name = "Windows NT (unknown)";
+                }
+                break;
+            default:
+                os_name = "Windows (unknown)";
+                break;
+        }
+
+        return os_name;
     }
 
     @Override

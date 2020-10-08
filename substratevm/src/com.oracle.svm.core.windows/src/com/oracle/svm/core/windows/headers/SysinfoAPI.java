@@ -30,6 +30,7 @@ import org.graalvm.nativeimage.c.CContext;
 import org.graalvm.nativeimage.c.function.CFunction;
 import org.graalvm.nativeimage.c.struct.CField;
 import org.graalvm.nativeimage.c.struct.CStruct;
+import org.graalvm.nativeimage.c.type.CCharPointer;
 import org.graalvm.word.PointerBase;
 
 // Checkstyle: stop
@@ -121,4 +122,47 @@ public class SysinfoAPI {
 
     @CFunction(transition = NO_TRANSITION)
     public static native int GetVersion();
+
+    @CStruct
+    public interface OSVERSIONINFOEX extends PointerBase {
+        @CField
+        int dwOSVersionInfoSize();
+
+        @CField
+        void set_dwOSVersionInfoSize(int value);
+
+        @CField
+        int dwMajorVersion();
+
+        @CField
+        int dwMinorVersion();
+
+        @CField
+        int dwBuildNumber();
+
+        @CField
+        int dwPlatformId();
+
+        @CField
+        CCharPointer szCSDVersion();
+
+        @CField
+        short wServicePackMajor();
+
+        @CField
+        short wServicePackMinor();
+
+        @CField
+        short wSuiteMask();
+
+        @CField
+        short wProductType();
+
+        @CField
+        short wReserved();
+    }
+
+    @CFunction(transition = NO_TRANSITION)
+    public static native int GetVersionEx(OSVERSIONINFOEX lpVersionInformation);
+
 }
