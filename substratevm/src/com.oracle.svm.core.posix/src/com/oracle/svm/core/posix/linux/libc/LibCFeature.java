@@ -44,7 +44,7 @@ public class LibCFeature implements Feature {
 
     @Override
     public boolean isInConfiguration(IsInConfigurationAccess access) {
-        return Platform.includedIn(Platform.LINUX.class);
+        return Platform.includedIn(Platform.LINUX_BASE.class);
     }
 
     public static class LibCOptions {

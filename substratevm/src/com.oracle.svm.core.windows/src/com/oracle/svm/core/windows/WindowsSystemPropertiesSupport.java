@@ -50,7 +50,7 @@ import com.oracle.svm.core.windows.headers.Process;
 import com.oracle.svm.core.windows.headers.SysinfoAPI;
 import com.oracle.svm.core.windows.headers.WinBase;
 
-@Platforms(Platform.WINDOWS.class)
+@Platforms(Platform.WINDOWS_BASE.class)
 public class WindowsSystemPropertiesSupport extends SystemPropertiesSupport {
 
     /* Null-terminated wide-character string. */
@@ -268,7 +268,7 @@ public class WindowsSystemPropertiesSupport extends SystemPropertiesSupport {
     }
 }
 
-@Platforms(Platform.WINDOWS.class)
+@Platforms(Platform.WINDOWS_BASE.class)
 @AutomaticFeature
 class WindowsSystemPropertiesFeature implements Feature {
     @Override
