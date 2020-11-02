@@ -103,7 +103,9 @@ public class ServiceLoaderFeature implements Feature {
      */
     private static final Set<String> SERVICES_TO_SKIP = new HashSet<>(Arrays.asList(
                     "java.security.Provider",                       // see SecurityServicesFeature
-                    "sun.util.locale.provider.LocaleDataMetaInfo"   // see LocaleSubstitutions
+                    "sun.util.locale.provider.LocaleDataMetaInfo",  // see LocaleSubstitutions
+                    "org.graalvm.nativeimage.Platform"  // type shouldn't be reachable after
+                                                        // intrinsification
     ));
 
     private static final Set<String> SERVICE_PROVIDERS_TO_SKIP = new HashSet<>(Arrays.asList(
