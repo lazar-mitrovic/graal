@@ -97,7 +97,7 @@ class VMInspectionOptions {
 
 class DumpAllStacks implements SignalHandler {
     static void install() {
-        Signal.handle(Platform.includedIn(WINDOWS.class) ? new Signal("BREAK") : new Signal("QUIT"), new DumpAllStacks());
+        Signal.handle(Platform.includedIn(Platform.WINDOWS.class) ? new Signal("BREAK") : new Signal("QUIT"), new DumpAllStacks());
     }
 
     @Override

@@ -52,15 +52,15 @@ import com.oracle.svm.util.ReflectionUtil;
 public class JNIRegistrationUtil {
 
     protected static boolean isPosix() {
-        return Platform.includedIn(Platform.LINUX.class) || Platform.includedIn(Platform.DARWIN.class);
+        return Platform.includedIn(Platform.LINUX_BASE.class) || Platform.includedIn(Platform.DARWIN_BASE.class);
     }
 
     protected static boolean isLinux() {
-        return Platform.includedIn(Platform.LINUX.class);
+        return Platform.includedIn(Platform.LINUX_BASE.class);
     }
 
     protected static boolean isDarwin() {
-        return Platform.includedIn(Platform.DARWIN.class);
+        return Platform.includedIn(Platform.DARWIN_BASE.class);
     }
 
     protected static boolean isWindows() {
