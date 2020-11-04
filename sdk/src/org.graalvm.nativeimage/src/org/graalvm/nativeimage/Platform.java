@@ -137,6 +137,25 @@ public interface Platform {
     }
 
     /*
+     * Operating system bases.
+     */
+    /**
+     * Interface encapsulating all linux-derived operating systems.
+     *
+     * @since 21.0
+     */
+    interface LINUX_BASE extends InternalPlatform.PLATFORM_JNI {
+    }
+
+    /**
+     * Interface encapsulating all darwin-derived operating systems.
+     *
+     * @since 21.0
+     */
+    interface DARWIN_BASE extends InternalPlatform.PLATFORM_JNI {
+    }
+
+    /*
      * The standard operating systems that are supported.
      */
     /**
@@ -144,7 +163,7 @@ public interface Platform {
      *
      * @since 19.0
      */
-    interface LINUX extends InternalPlatform.PLATFORM_JNI {
+    interface LINUX extends LINUX_BASE {
         default String getOS() {
             return "linux";
         }
@@ -155,7 +174,7 @@ public interface Platform {
      *
      * @since 21.0
      */
-    interface ANDROID extends LINUX {
+    interface ANDROID extends LINUX_BASE {
         default String getOS() {
             return "android";
         }
@@ -166,7 +185,7 @@ public interface Platform {
      *
      * @since 19.0
      */
-    interface DARWIN extends InternalPlatform.PLATFORM_JNI {
+    interface DARWIN extends DARWIN_BASE {
         default String getOS() {
             return "darwin";
         }
@@ -177,7 +196,7 @@ public interface Platform {
      *
      * @since 21.0
      */
-    interface IOS extends DARWIN {
+    interface IOS extends DARWIN_BASE {
         default String getOS() {
             return "ios";
         }
