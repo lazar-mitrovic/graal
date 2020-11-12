@@ -84,6 +84,31 @@ public interface Platform {
         return platformGroup.isInstance(ImageSingletons.lookup(Platform.class));
     }
 
+    /**
+     * Returns the string representing Platform's OS name
+     * <p>
+     * This method should be implemented either in a final class or as default method in respective
+     * OS interface.
+     *
+     * @since 21.0
+     */
+    default String getOS() {
+        throw new UnsupportedOperationException("Platform doesn't implement getOS");
+    }
+
+    /**
+     * Returns the string representing Platform's architecture name. This value should be the same
+     * as desired os.arch system property
+     * <p>
+     * This method should be implemented either in final class or as default method in respective
+     * architecture interface.
+     *
+     * @since 21.0
+     */
+    default String getArchitecture() {
+        throw new UnsupportedOperationException("Platform doesn't implement getArchitecture");
+    }
+
     /*
      * The standard architectures that are supported.
      */
@@ -93,7 +118,9 @@ public interface Platform {
      * @since 19.0
      */
     interface AMD64 extends Platform {
-
+        default String getArchitecture() {
+            return "amd64";
+        }
     }
 
     /**
@@ -102,7 +129,9 @@ public interface Platform {
      * @since 19.0
      */
     interface AARCH64 extends Platform {
-
+        default String getArchitecture() {
+            return "aarch64";
+        }
     }
 
     /*
@@ -114,7 +143,20 @@ public interface Platform {
      * @since 19.0
      */
     interface LINUX extends InternalPlatform.PLATFORM_JNI {
+        default String getOS() {
+            return "linux";
+        }
+    }
 
+    /**
+     * Supported operating system: Android.
+     *
+     * @since 21.0
+     */
+    interface ANDROID extends LINUX {
+        default String getOS() {
+            return "android";
+        }
     }
 
     /**
@@ -123,7 +165,20 @@ public interface Platform {
      * @since 19.0
      */
     interface DARWIN extends InternalPlatform.PLATFORM_JNI {
+        default String getOS() {
+            return "darwin";
+        }
+    }
 
+    /**
+     * Supported operating system: iOS.
+     *
+     * @since 21.0
+     */
+    interface IOS extends DARWIN {
+        default String getOS() {
+            return "ios";
+        }
     }
 
     /**
@@ -132,7 +187,9 @@ public interface Platform {
      * @since 19.0
      */
     interface WINDOWS extends InternalPlatform.PLATFORM_JNI {
-
+        default String getOS() {
+            return "windows";
+        }
     }
 
     /*
@@ -173,11 +230,28 @@ public interface Platform {
     }
 
     /**
+     * Supported leaf platform: Android on AArch64 64-bit.
+     *
+     * @since 21.0
+     */
+    final class ANDROID_AARCH64 implements ANDROID, AARCH64 {
+
+        /**
+         * Instantiates a marker instance of this platform.
+         *
+         * @since 21.0
+         */
+        public ANDROID_AARCH64() {
+        }
+
+    }
+
+    /**
      * Supported leaf platform: Darwin (MacOS) on x86 64-bit.
      *
      * @since 19.0
      */
-    class DARWIN_AMD64 implements DARWIN, AMD64 {
+    final class DARWIN_AMD64 implements DARWIN, AMD64 {
 
         /**
          * Instantiates a marker instance of this platform.
@@ -205,11 +279,27 @@ public interface Platform {
     }
 
     /**
+     * Supported leaf platform: iOS on AArch 64-bit.
+     *
+     * @since 21.0
+     */
+    final class IOS_AARCH64 implements IOS, AARCH64 {
+
+        /**
+         * Instantiates a marker instance of this platform.
+         *
+         * @since 21.0
+         */
+        public IOS_AARCH64() {
+        }
+    }
+
+    /**
      * Supported leaf platform: Windows on x86 64-bit.
      *
      * @since 19.0
      */
-    class WINDOWS_AMD64 implements WINDOWS, AMD64 {
+    final class WINDOWS_AMD64 implements WINDOWS, AMD64 {
 
         /**
          * Instantiates a marker instance of this platform.
