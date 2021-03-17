@@ -724,34 +724,17 @@ public final class DynamicHub implements JavaKind.FormatWithToString, AnnotatedE
         return (Enum<?>[]) enumConstantsReference;
     }
 
-    @Substitute
-    private InputStream getResourceAsStream(String resourceName) {
-        final String path = resolveName(getName(), resourceName);
-        List<byte[]> arr = Resources.get(path);
-        return arr == null ? null : new ByteArrayInputStream(arr.get(0));
-    }
+    @KeepOriginal
+    public native URL getResource(String resourceName);
 
-    @Substitute
-    private URL getResource(String resourceName) {
-        final String path = resolveName(getName(), resourceName);
-        List<byte[]> arr = Resources.get(path);
-        return arr == null ? null : Resources.createURL(path, arr.get(0));
-    }
+    @KeepOriginal
+    public native InputStream getResourceAsStream(String resourceName);
 
-    private String resolveName(String baseName, String resourceName) {
-        if (resourceName == null) {
-            return resourceName;
-        }
-        if (resourceName.startsWith("/")) {
-            return resourceName.substring(1);
-        }
-        int index = baseName.lastIndexOf('.');
-        if (index != -1) {
-            return baseName.substring(0, index).replace('.', '/') + "/" + resourceName;
-        } else {
-            return resourceName;
-        }
-    }
+    @KeepOriginal
+    private native String resolveName(String name);
+
+    @KeepOriginal
+    private native boolean isOpenToCaller(String name, Class<?> caller);
 
     @KeepOriginal
     private native ClassLoader getClassLoader();

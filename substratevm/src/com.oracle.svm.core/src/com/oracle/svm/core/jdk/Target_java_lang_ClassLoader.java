@@ -40,8 +40,10 @@ import java.util.List;
 import java.util.Vector;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 
 import com.oracle.svm.core.annotate.Alias;
+import com.oracle.svm.core.annotate.AnnotateOriginal;
 import com.oracle.svm.core.annotate.Delete;
 import com.oracle.svm.core.annotate.RecomputeFieldValue;
 import com.oracle.svm.core.annotate.RecomputeFieldValue.Kind;
@@ -215,6 +217,9 @@ final class Target_java_lang_ClassLoader {
     @Alias //
     private static ClassLoader scl;
 
+    @Alias
+    private ClassLoader parent;
+
     @Substitute
     public static ClassLoader getSystemClassLoader() {
         VMError.guarantee(scl != null);
@@ -224,45 +229,36 @@ final class Target_java_lang_ClassLoader {
     @Delete
     private static native void initSystemClassLoader();
 
-    @Substitute
-    private URL getResource(String name) {
-        return getSystemResource(name);
-    }
+    @AnnotateOriginal
+    public native URL getResource(String name);
 
-    @Substitute
-    private InputStream getResourceAsStream(String name) {
-        return getSystemResourceAsStream(name);
-    }
+    @AnnotateOriginal
+    public native InputStream getResourceAsStream(String name);
 
-    @Substitute
-    private Enumeration<URL> getResources(String name) {
-        return getSystemResources(name);
-    }
+    @AnnotateOriginal
+    public native Enumeration<URL> getResources(String name);
 
-    @Substitute
-    private static URL getSystemResource(String name) {
-        List<byte[]> arr = Resources.get(name);
-        return arr == null ? null : Resources.createURL(name, arr.get(0));
-    }
+    @AnnotateOriginal
+    public native static URL getSystemResource(String name);
 
-    @Substitute
-    private static InputStream getSystemResourceAsStream(String name) {
-        List<byte[]> arr = Resources.get(name);
-        return arr == null ? null : new ByteArrayInputStream(arr.get(0));
-    }
+    @AnnotateOriginal
+    public native static InputStream getSystemResourceAsStream(String name);
 
-    @Substitute
-    private static Enumeration<URL> getSystemResources(String name) {
-        List<byte[]> arr = Resources.get(name);
-        if (arr == null) {
-            return Collections.emptyEnumeration();
-        }
-        List<URL> res = new ArrayList<>(arr.size());
-        for (byte[] data : arr) {
-            res.add(Resources.createURL(name, data));
-        }
-        return Collections.enumeration(res);
-    }
+    @AnnotateOriginal
+    public native static Enumeration<URL> getSystemResources(String name);
+
+    @AnnotateOriginal
+    public native Stream<URL> resources(String name);
+
+    @AnnotateOriginal
+    @TargetElement(onlyWith = JDK11OrLater.class)
+    protected native URL findResource(String moduleName, String name) throws IOException;
+
+    @AnnotateOriginal
+    protected native URL findResource(String name);
+
+    @AnnotateOriginal
+    protected native Enumeration<URL> findResources(String name) throws IOException;
 
     @Substitute
     @SuppressWarnings("unused")
@@ -328,13 +324,6 @@ final class Target_java_lang_ClassLoader {
     @SuppressWarnings({"unused"})
     private boolean trySetObjectField(String name, Object obj) {
         throw VMError.unsupportedFeature("JDK11OrLater: Target_java_lang_ClassLoader.trySetObjectField(String name, Object obj)");
-    }
-
-    @Substitute //
-    @TargetElement(onlyWith = JDK11OrLater.class) //
-    @SuppressWarnings({"unused"})
-    protected URL findResource(String moduleName, String name) throws IOException {
-        throw VMError.unsupportedFeature("JDK11OrLater: Target_java_lang_ClassLoader.findResource(String, String)");
     }
 
     @Substitute //

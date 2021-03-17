@@ -44,6 +44,7 @@ import org.graalvm.compiler.replacements.nodes.BinaryMathIntrinsicNode;
 import org.graalvm.compiler.replacements.nodes.BinaryMathIntrinsicNode.BinaryOperation;
 import org.graalvm.compiler.replacements.nodes.UnaryMathIntrinsicNode;
 import org.graalvm.compiler.replacements.nodes.UnaryMathIntrinsicNode.UnaryOperation;
+import com.oracle.svm.core.annotate.AnnotateOriginal;
 import org.graalvm.nativeimage.ImageSingletons;
 import org.graalvm.nativeimage.Platform;
 import org.graalvm.nativeimage.Platforms;
@@ -708,27 +709,17 @@ final class Target_jdk_internal_loader_BootLoader {
         return true;
     }
 
-    @SuppressWarnings("unused")
-    @Substitute
-    private static URL findResource(String mn, String name) {
-        return ClassLoader.getSystemClassLoader().getResource(name);
-    }
+    @AnnotateOriginal
+    public native static URL findResource(String mn, String name);
 
-    @SuppressWarnings("unused")
-    @Substitute
-    private static InputStream findResourceAsStream(String mn, String name) {
-        return ClassLoader.getSystemClassLoader().getResourceAsStream(name);
-    }
+    @AnnotateOriginal
+    public native static InputStream findResourceAsStream(String mn, String name);
 
-    @Substitute
-    private static URL findResource(String name) {
-        return ClassLoader.getSystemClassLoader().getResource(name);
-    }
+    @AnnotateOriginal
+    public native static URL findResource(String name);
 
-    @Substitute
-    private static Enumeration<URL> findResources(String name) throws IOException {
-        return ClassLoader.getSystemClassLoader().getResources(name);
-    }
+    @AnnotateOriginal
+    public native static Enumeration<URL> findResources(String name) throws IOException;
 
     /**
      * All ClassLoaderValue are reset at run time for now. See also
