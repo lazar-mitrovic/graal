@@ -105,6 +105,25 @@ final class Target_java_net_URLClassLoader {
     }
 
     @Substitute
+    public Enumeration<URL> findResources(final String name) {
+        List<byte[]> arr = Resources.get(name);
+        if (arr == null) {
+            return Collections.emptyEnumeration();
+        }
+        List<URL> res = new ArrayList<>(arr.size());
+        for (byte[] data : arr) {
+            res.add(Resources.createURL(name, data));
+        }
+        return Collections.enumeration(res);
+    }
+
+    @Substitute
+    public URL findResource(final String name) {
+        List<byte[]> arr = Resources.get(name);
+        return arr == null ? null : Resources.createURL(name, arr.get(0));
+    }
+
+    @Substitute
     @SuppressWarnings("unused")
     protected Class<?> findClass(final String name) {
         throw VMError.unsupportedFeature("Loading bytecodes.");
@@ -230,35 +249,33 @@ final class Target_java_lang_ClassLoader {
     private static native void initSystemClassLoader();
 
     @AnnotateOriginal
-    public native URL getResource(String name);
-
-    @AnnotateOriginal
-    public native InputStream getResourceAsStream(String name);
-
-    @AnnotateOriginal
-    public native Enumeration<URL> getResources(String name);
-
-    @AnnotateOriginal
-    public native static URL getSystemResource(String name);
-
-    @AnnotateOriginal
-    public native static InputStream getSystemResourceAsStream(String name);
-
-    @AnnotateOriginal
-    public native static Enumeration<URL> getSystemResources(String name);
-
-    @AnnotateOriginal
+    @TargetElement(name = "resources", onlyWith = JDK11OrLater.class)
     public native Stream<URL> resources(String name);
 
     @AnnotateOriginal
     @TargetElement(onlyWith = JDK11OrLater.class)
     protected native URL findResource(String moduleName, String name) throws IOException;
 
-    @AnnotateOriginal
-    protected native URL findResource(String name);
+    @Substitute
+    @TargetElement(onlyWith = JDK8OrEarlier.class)
+    private static URL getBootstrapResource(String name) {
+        List<byte[]> arr = Resources.get(name);
+        return arr == null ? null : Resources.createURL(name, arr.get(0));
+    }
 
-    @AnnotateOriginal
-    protected native Enumeration<URL> findResources(String name) throws IOException;
+    @Substitute
+    @TargetElement(onlyWith = JDK8OrEarlier.class)
+    private static Enumeration<URL> getBootstrapResources(String name) {
+        List<byte[]> arr = Resources.get(name);
+        if (arr == null) {
+            return Collections.emptyEnumeration();
+        }
+        List<URL> res = new ArrayList<>(arr.size());
+        for (byte[] data : arr) {
+            res.add(Resources.createURL(name, data));
+        }
+        return Collections.enumeration(res);
+    }
 
     @Substitute
     @SuppressWarnings("unused")

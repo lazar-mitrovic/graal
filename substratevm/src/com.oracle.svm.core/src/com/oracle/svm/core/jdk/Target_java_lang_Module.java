@@ -35,6 +35,7 @@ import com.oracle.svm.core.annotate.TargetClass;
 @TargetClass(className = "java.lang.Module", onlyWith = JDK11OrLater.class)
 public final class Target_java_lang_Module {
 
+    @SuppressWarnings("static-method")
     @Substitute
     public InputStream getResourceAsStream(String name) {
         List<byte[]> arr = Resources.get(name);

@@ -709,18 +709,6 @@ final class Target_jdk_internal_loader_BootLoader {
         return true;
     }
 
-    @AnnotateOriginal
-    public native static URL findResource(String mn, String name);
-
-    @AnnotateOriginal
-    public native static InputStream findResourceAsStream(String mn, String name);
-
-    @AnnotateOriginal
-    public native static URL findResource(String name);
-
-    @AnnotateOriginal
-    public native static Enumeration<URL> findResources(String name) throws IOException;
-
     /**
      * All ClassLoaderValue are reset at run time for now. See also
      * {@link Target_java_lang_ClassLoader#classLoaderValueMap} for resetting of individual class

@@ -26,7 +26,6 @@ package com.oracle.svm.core.hub;
 
 //Checkstyle: allow reflection
 
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.io.Serializable;
@@ -81,7 +80,6 @@ import com.oracle.svm.core.jdk.JDK15OrLater;
 import com.oracle.svm.core.jdk.JDK16OrLater;
 import com.oracle.svm.core.jdk.JDK8OrEarlier;
 import com.oracle.svm.core.jdk.Package_jdk_internal_reflect;
-import com.oracle.svm.core.jdk.Resources;
 import com.oracle.svm.core.jdk.Target_java_lang_Module;
 import com.oracle.svm.core.meta.SharedType;
 import com.oracle.svm.core.util.LazyFinalReference;
@@ -731,10 +729,11 @@ public final class DynamicHub implements JavaKind.FormatWithToString, AnnotatedE
     public native InputStream getResourceAsStream(String resourceName);
 
     @KeepOriginal
-    private native String resolveName(String name);
+    private native String resolveName(String resourceName);
 
     @KeepOriginal
-    private native boolean isOpenToCaller(String name, Class<?> caller);
+    @TargetElement(name = "isOpenToCaller", onlyWith = JDK11OrLater.class)
+    private native boolean isOpenToCaller(String resourceName, Class<?> caller);
 
     @KeepOriginal
     private native ClassLoader getClassLoader();
