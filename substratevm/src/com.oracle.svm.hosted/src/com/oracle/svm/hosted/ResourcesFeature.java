@@ -33,6 +33,7 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Enumeration;
@@ -40,6 +41,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
@@ -167,7 +169,7 @@ public final class ResourcesFeature implements Feature {
         for (File element : todo) {
             try {
                 if (element.isDirectory()) {
-                    scanDirectory(debugContext, element, "", includePatterns, excludePatterns);
+                    scanDirectory(debugContext, element, includePatterns, excludePatterns);
                 } else {
                     scanJar(debugContext, element, includePatterns, excludePatterns);
                 }
@@ -202,23 +204,51 @@ public final class ResourcesFeature implements Feature {
         }
     }
 
-    private void scanDirectory(DebugContext debugContext, File f, String relativePath, Pattern[] includePatterns, Pattern[] excludePatterns) throws IOException {
-        if (f.isDirectory()) {
-            File[] files = f.listFiles();
-            if (files == null) {
-                throw UserError.abort("Cannot scan directory %s", f);
-            } else {
-                for (File ch : files) {
-                    scanDirectory(debugContext, ch, relativePath.isEmpty() ? ch.getName() : relativePath + "/" + ch.getName(), includePatterns, excludePatterns);
-                }
+    private void scanDirectory(DebugContext debugContext, File f, Pattern[] includePatterns, Pattern[] excludePatterns) throws IOException {
+        Map<String, List<String>> matchedDirectoryResources = new HashMap<>();
+        Set<String> allEntries = new HashSet<>();
+        ArrayList<File> queue = new ArrayList<>();
+
+        queue.add(f);
+        while (!queue.isEmpty()) {
+            File file = queue.remove(0);
+            String relativeFilePath = "";
+            if (file != f) {
+                relativeFilePath = file.getAbsolutePath().substring(f.getAbsolutePath().length() + 1);
             }
-        } else {
-            if (matches(includePatterns, excludePatterns, relativePath)) {
-                try (FileInputStream is = new FileInputStream(f)) {
-                    registerResource(debugContext, relativePath, is);
+            if (file.isDirectory()) {
+                allEntries.add(relativeFilePath);
+                if (matches(includePatterns, excludePatterns, relativeFilePath)) {
+                    matchedDirectoryResources.put(relativeFilePath, new ArrayList<>());
+                }
+                File[] files = file.listFiles();
+                if (files == null) {
+                    throw UserError.abort("Cannot scan directory %s", file);
+                }
+                queue.addAll(Arrays.asList(files));
+            } else {
+                allEntries.add(relativeFilePath);
+                if (matches(includePatterns, excludePatterns, relativeFilePath)) {
+                    try (InputStream is = new FileInputStream(file)) {
+                        registerResource(debugContext, relativeFilePath, is);
+                    }
                 }
             }
         }
+
+        for (String entry : allEntries) {
+            int last = entry.lastIndexOf('/');
+            String key = last == -1 ? "" : entry.substring(0, last);
+            List<String> dirContent = matchedDirectoryResources.get(key);
+            if (dirContent != null && !dirContent.contains(entry)) {
+                dirContent.add(entry.substring(last + 1));
+            }
+        }
+
+        matchedDirectoryResources.forEach((dir, content) -> {
+            content.sort(Comparator.naturalOrder());
+            registerDirectoryResource(debugContext, dir, String.join(System.lineSeparator(), content));
+        });
     }
 
     private static void scanJar(DebugContext debugContext, File element, Pattern[] includePatterns, Pattern[] excludePatterns) throws IOException {
@@ -250,7 +280,7 @@ public final class ResourcesFeature implements Feature {
             String key = last == -1 ? "" : entry.substring(0, last);
             List<String> dirContent = matchedDirectoryResources.get(key);
             if (dirContent != null && !dirContent.contains(entry)) {
-                dirContent.add(entry.substring(last + 1, entry.length()));
+                dirContent.add(entry.substring(last + 1));
             }
         }
 

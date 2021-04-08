@@ -144,8 +144,9 @@ public final class Resources {
             }
         }
 
+        // TODO: Replace with real URI instead of 'tmp'.
         try {
-            return new URL("resource", null, -1, name, new URLStreamHandler() {
+            return new URL("resource", null, -1, "tmp!/" + name, new URLStreamHandler() {
                 @Override
                 protected URLConnection openConnection(URL u) throws IOException {
                     return new Conn(u);

@@ -132,6 +132,8 @@ final class FileSystemProviderFeature implements Feature {
              * during image generation.
              */
             installedProviders.addAll(FileSystemProvider.installedProviders());
+            // TODO: Register filesystem provider through ServiceLoader.
+            installedProviders.add(new ResourceFileSystemProvider());
         }
         ImageSingletons.add(FileSystemProviderSupport.class, new FileSystemProviderSupport(installedProviders));
 
