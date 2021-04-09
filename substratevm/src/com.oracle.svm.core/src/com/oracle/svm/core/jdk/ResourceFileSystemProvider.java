@@ -24,9 +24,31 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
-// TODO: Add support for removing File systems.
+/**
+ * ResourcesFileSystemProvider is a core class that supports building a custom file system on top of
+ * resources in the native image.
+ *
+ * <p> Resources are collected in build time in {@link ResourcesFeature} and stored in a hash map in {@link Resources} class.
+ * We are supporting only resources that are on the classpath. </p>
+ *
+ * <p> ResourceFileSystemProvider exposes methods for creating a new file system, getting existing one or
+ * doing operations like getting file attributes, getting path appropriate for this file system, checking
+ * access rights, etc. Operations like moving files, copying files, deleting files, setting file attributes, or
+ * creating directories are not permitted because the custom file system that we are building on top of resources
+ * is read-only. The reason behind this restriction is that native image resources are part of the read-only heap,
+ * so they are not changeable. </p>
+ *
+ * <p>Most of operations mentioned above aren't accessed directly i.e. by calling methods from this file system
+ * provider, however their are called indirectly from accessing method from {@link java.nio.file.Files}. </p>
+ *
+ * @author jovanstevanovic
+ * @see ResourceFileSystem
+ * @see ResourceAttributes
+ * @see ResourceAttributesView
+ */
 public class ResourceFileSystemProvider extends FileSystemProvider {
 
+    // TODO: Add support for removing File systems.
     private final Map<String, ResourceFileSystem> filesystems = new HashMap<>();
 
     // TODO: Need enhancement.
