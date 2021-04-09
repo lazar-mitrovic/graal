@@ -33,22 +33,28 @@ public class ResourceAttributesView implements BasicFileAttributeView {
 
     @SuppressWarnings("unchecked")
     static <V extends FileAttributeView> V get(ResourcePath path, Class<V> type) {
-        if (type == null)
+        if (type == null) {
             throw new NullPointerException();
-        if (type == BasicFileAttributeView.class)
+        }
+        if (type == BasicFileAttributeView.class) {
             return (V) new ResourceAttributesView(path, true);
-        if (type == ResourceAttributesView.class)
+        }
+        if (type == ResourceAttributesView.class) {
             return (V) new ResourceAttributesView(path, false);
+        }
         return null;
     }
 
     static ResourceAttributesView get(ResourcePath path, String type) {
-        if (type == null)
+        if (type == null) {
             throw new NullPointerException();
-        if (type.equals("basic"))
+        }
+        if (type.equals("basic")) {
             return new ResourceAttributesView(path, true);
-        if (type.equals("resource"))
+        }
+        if (type.equals("resource")) {
             return new ResourceAttributesView(path, false);
+        }
         return null;
     }
 

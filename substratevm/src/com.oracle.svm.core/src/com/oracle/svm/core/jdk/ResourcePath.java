@@ -138,13 +138,14 @@ public class ResourcePath implements Path {
     @Override
     public Path getName(int index) {
         initOffsets();
-        if (index < 0 || index >= offsets.length)
+        if (index < 0 || index >= offsets.length) {
             throw new IllegalArgumentException();
+        }
         int begin = offsets[index];
         int len;
-        if (index == (offsets.length - 1))
+        if (index == (offsets.length - 1)) {
             len = path.length - begin;
-        else
+        } else
             len = offsets[index + 1] - begin - 1;
 
         byte[] result = new byte[len];
@@ -158,14 +159,15 @@ public class ResourcePath implements Path {
         if (beginIndex < 0 ||
                         beginIndex >= offsets.length ||
                         endIndex > offsets.length ||
-                        beginIndex >= endIndex)
+                        beginIndex >= endIndex) {
             throw new IllegalArgumentException();
+        }
 
         int begin = offsets[beginIndex];
         int len;
-        if (endIndex == offsets.length)
+        if (endIndex == offsets.length) {
             len = path.length - begin;
-        else
+        } else
             len = offsets[endIndex] - begin - 1;
 
         byte[] result = new byte[len];
@@ -415,8 +417,9 @@ public class ResourcePath implements Path {
     @Override
     public int hashCode() {
         int h = hashcode;
-        if (h == 0)
+        if (h == 0) {
             hashcode = h = Arrays.hashCode(path);
+        }
         return h;
     }
 
@@ -442,8 +445,9 @@ public class ResourcePath implements Path {
 
     public ResourceAttributes getAttributes() throws NoSuchFileException {
         ResourceAttributes resourceAttributes = fileSystem.getFileAttributes(getResolvedPath());
-        if (resourceAttributes == null)
+        if (resourceAttributes == null) {
             throw new NoSuchFileException(toString());
+        }
         return resourceAttributes;
     }
 
@@ -468,12 +472,13 @@ public class ResourcePath implements Path {
     byte[] getResolvedPath() {
         byte[] r = resolved;
         if (r == null) {
-            if (isAbsolute())
+            if (isAbsolute()) {
                 r = getResolved();
-            else
+            } else
                 r = toAbsolutePath().getResolvedPath();
-            if (r[0] == '/')
+            if (r[0] == '/') {
                 r = Arrays.copyOfRange(r, 1, r.length);
+            }
             resolved = r;
         }
         return resolved;
@@ -552,8 +557,9 @@ public class ResourcePath implements Path {
             int n = offsets[i];
             int len = (i == offsets.length - 1) ? (path.length - n) : (offsets[i + 1] - n - 1);
             if (len == 1 && path[n] == (byte) '.') {
-                if (m == 0 && path[0] == '/')   // absolute path
+                if (m == 0 && path[0] == '/') { // absolute path
                     to[m++] = '/';
+                }
                 continue;
             }
             if (len == 2 && path[n] == '.' && path[n + 1] == '.') {
@@ -562,13 +568,16 @@ public class ResourcePath implements Path {
                     continue;
                 }
                 if (path[0] == '/') {  // "/../xyz" skip
-                    if (m == 0)
+                    if (m == 0) {
                         to[m++] = '/';
+                    }
                 } else {               // "../xyz" -> "../xyz"
-                    if (m != 0 && to[m - 1] != '/')
+                    if (m != 0 && to[m - 1] != '/') {
                         to[m++] = '/';
-                    while (len-- > 0)
+                    }
+                    while (len-- > 0) {
                         to[m++] = path[n++];
+                    }
                 }
                 continue;
             }
@@ -577,11 +586,13 @@ public class ResourcePath implements Path {
                 to[m++] = '/';
             }
             lastM[++lastMOff] = m;
-            while (len-- > 0)
+            while (len-- > 0) {
                 to[m++] = path[n++];
+            }
         }
-        if (m > 1 && to[m - 1] == '/')
+        if (m > 1 && to[m - 1] == '/') {
             m--;
+        }
         return (m == to.length) ? to : Arrays.copyOf(to, m);
     }
 
@@ -612,10 +623,12 @@ public class ResourcePath implements Path {
     }
 
     public boolean isSameFile(Path other) {
-        if (this.equals(other))
+        if (this.equals(other)) {
             return true;
-        if (other == null || this.getFileSystem() != other.getFileSystem())
+        }
+        if (other == null || this.getFileSystem() != other.getFileSystem()) {
             return false;
+        }
         return Arrays.equals(this.getResolvedPath(), ((ResourcePath) other).getResolvedPath());
     }
 }

@@ -33,23 +33,26 @@ public class ResourceDirectoryStream implements DirectoryStream<Path> {
     // TODO: We need to filter data, based on filter parameter.
     @Override
     public Iterator<Path> iterator() {
-        if (isClosed)
+        if (isClosed) {
             throw new ClosedDirectoryStreamException();
+        }
 
         return new Iterator<Path>() {
             final Iterator<String> iterator = data.iterator();
 
             @Override
             public boolean hasNext() {
-                if (isClosed)
+                if (isClosed) {
                     return false;
+                }
                 return iterator.hasNext();
             }
 
             @Override
             public Path next() {
-                if (isClosed)
+                if (isClosed) {
                     throw new NoSuchElementException();
+                }
                 return new ResourcePath(fileSystem, fileSystem.getBytes(iterator.next()));
             }
 
@@ -62,7 +65,8 @@ public class ResourceDirectoryStream implements DirectoryStream<Path> {
 
     @Override
     public void close() throws IOException {
-        if (!isClosed)
+        if (!isClosed) {
             isClosed = true;
+        }
     }
 }

@@ -28,18 +28,25 @@ import java.util.Set;
  * ResourcesFileSystemProvider is a core class that supports building a custom file system on top of
  * resources in the native image.
  *
- * <p> Resources are collected in build time in {@link ResourcesFeature} and stored in a hash map in {@link Resources} class.
- * We are supporting only resources that are on the classpath. </p>
+ * <p>
+ * Resources are collected in build time in {@link ResourcesFeature} and stored in a hash map in
+ * {@link Resources} class. We are supporting only resources that are on the classpath.
+ * </p>
  *
- * <p> ResourceFileSystemProvider exposes methods for creating a new file system, getting existing one or
- * doing operations like getting file attributes, getting path appropriate for this file system, checking
- * access rights, etc. Operations like moving files, copying files, deleting files, setting file attributes, or
- * creating directories are not permitted because the custom file system that we are building on top of resources
- * is read-only. The reason behind this restriction is that native image resources are part of the read-only heap,
- * so they are not changeable. </p>
+ * <p>
+ * ResourceFileSystemProvider exposes methods for creating a new file system, getting existing one
+ * or doing operations like getting file attributes, getting path appropriate for this file system,
+ * checking access rights, etc. Operations like moving files, copying files, deleting files, setting
+ * file attributes, or creating directories are not permitted because the custom file system that we
+ * are building on top of resources is read-only. The reason behind this restriction is that native
+ * image resources are part of the read-only heap, so they are not changeable.
+ * </p>
  *
- * <p>Most of operations mentioned above aren't accessed directly i.e. by calling methods from this file system
- * provider, however their are called indirectly from accessing method from {@link java.nio.file.Files}. </p>
+ * <p>
+ * Most of operations mentioned above aren't accessed directly i.e. by calling methods from this
+ * file system provider, however their are called indirectly from accessing method from
+ * {@link java.nio.file.Files}.
+ * </p>
  *
  * @author jovanstevanovic
  * @see ResourceFileSystem
@@ -54,22 +61,26 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
     // TODO: Need enhancement.
     private String uriToPath(URI uri) {
         String scheme = uri.getScheme();
-        if ((scheme == null) || !scheme.equalsIgnoreCase(getScheme()))
+        if ((scheme == null) || !scheme.equalsIgnoreCase(getScheme())) {
             throw new IllegalArgumentException("URI scheme is not '" + getScheme() + "'");
+        }
 
         // Syntax is resource:{uri}!/{entry}
         String spec = uri.getRawSchemeSpecificPart();
         int sep = spec.indexOf("!/");
-        if (sep != -1)
+        if (sep != -1) {
             spec = spec.substring(0, sep);
+        }
         return spec;
     }
 
     private static ResourcePath toResourcePath(Path path) {
-        if (path == null)
+        if (path == null) {
             throw new NullPointerException();
-        if (!(path instanceof ResourcePath))
+        }
+        if (!(path instanceof ResourcePath)) {
             throw new ProviderMismatchException();
+        }
         return (ResourcePath) path;
     }
 
@@ -83,8 +94,9 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
     public FileSystem newFileSystem(URI uri, Map<String, ?> env) {
         String path = uriToPath(uri);
         synchronized (filesystems) {
-            if (filesystems.containsKey(path))
+            if (filesystems.containsKey(path)) {
                 throw new FileSystemAlreadyExistsException();
+            }
             ResourceFileSystem resourceFileSystem = new ResourceFileSystem(this, path, env);
             filesystems.put(path, resourceFileSystem);
             return resourceFileSystem;
@@ -96,8 +108,9 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
     public FileSystem getFileSystem(URI uri) {
         synchronized (filesystems) {
             ResourceFileSystem resourceFileSystem = filesystems.get(uriToPath(uri));
-            if (resourceFileSystem == null)
+            if (resourceFileSystem == null) {
                 throw new FileSystemNotFoundException();
+            }
             return resourceFileSystem;
         }
     }
@@ -106,8 +119,9 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
     public Path getPath(URI uri) {
         String spec = uri.getSchemeSpecificPart();
         int sep = spec.indexOf("!/");
-        if (sep == -1)
+        if (sep == -1) {
             throw new IllegalArgumentException("URI: " + uri + " does not contain path info ex. resource:foo.jar!/bar.txt");
+        }
         return getFileSystem(uri).getPath(spec.substring(sep + 1));
     }
 
@@ -180,8 +194,9 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
     @Override
     @SuppressWarnings("unchecked")
     public <A extends BasicFileAttributes> A readAttributes(Path path, Class<A> type, LinkOption... options) throws IOException {
-        if (type == BasicFileAttributes.class || type == ResourceAttributes.class)
+        if (type == BasicFileAttributes.class || type == ResourceAttributes.class) {
             return (A) toResourcePath(path).getAttributes();
+        }
         return null;
     }
 

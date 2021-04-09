@@ -54,8 +54,9 @@ public class ResourceFileSystem extends FileSystem {
     }
 
     private void ensureOpen() {
-        if (!isOpen)
+        if (!isOpen) {
             throw new ClosedFileSystemException();
+        }
     }
 
     private void beginWrite() {
@@ -94,8 +95,9 @@ public class ResourceFileSystem extends FileSystem {
     public void close() throws IOException {
         beginWrite();
         try {
-            if (!isOpen)
+            if (!isOpen) {
                 return;
+            }
             isOpen = false;
         } finally {
             endWrite();
@@ -143,8 +145,9 @@ public class ResourceFileSystem extends FileSystem {
             sb.append(first);
             for (String segment : more) {
                 if (segment.length() > 0) {
-                    if (sb.length() > 0)
+                    if (sb.length() > 0) {
                         sb.append('/');
+                    }
                     sb.append(segment);
                 }
             }
@@ -218,10 +221,12 @@ public class ResourceFileSystem extends FileSystem {
 
     private void checkOptions(Set<? extends OpenOption> options) {
         for (OpenOption option : options) {
-            if (option == null)
+            if (option == null) {
                 throw new NullPointerException();
-            if (!(option instanceof StandardOpenOption))
+            }
+            if (!(option instanceof StandardOpenOption)) {
                 throw new IllegalArgumentException();
+            }
         }
     }
 
