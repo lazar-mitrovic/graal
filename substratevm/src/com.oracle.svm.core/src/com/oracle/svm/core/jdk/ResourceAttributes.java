@@ -14,17 +14,17 @@ public class ResourceAttributes implements BasicFileAttributes {
 
     @Override
     public FileTime lastModifiedTime() {
-        return null;
+        return FileTime.fromMillis(entry.lastModifiedTime);
     }
 
     @Override
     public FileTime lastAccessTime() {
-        return null;
+        return FileTime.fromMillis(entry.lastAccessTime);
     }
 
     @Override
     public FileTime creationTime() {
-        return null;
+        return FileTime.fromMillis(entry.createTime);
     }
 
     @Override
@@ -52,6 +52,7 @@ public class ResourceAttributes implements BasicFileAttributes {
         return entry.size();
     }
 
+    // TODO: Need further thinking.
     @Override
     public Object fileKey() {
         return null;
@@ -61,9 +62,9 @@ public class ResourceAttributes implements BasicFileAttributes {
     public String toString() {
         StringBuilder sb = new StringBuilder(1024);
         Formatter fm = new Formatter(sb);
-        fm.format("    creationTime    : null%n");
-        fm.format("    lastAccessTime  : null%n");
-        fm.format("    lastModifiedTime: null%n");
+        fm.format("    creationTime    : %tc%n", creationTime().toMillis());
+        fm.format("    lastAccessTime  : %tc%n", lastAccessTime().toMillis());
+        fm.format("    lastModifiedTime: %tc%n", lastModifiedTime().toMillis());
         fm.format("    isRegularFile   : %b%n", isRegularFile());
         fm.format("    isDirectory     : %b%n", isDirectory());
         fm.format("    isSymbolicLink  : %b%n", isSymbolicLink());

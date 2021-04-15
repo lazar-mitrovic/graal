@@ -1,9 +1,12 @@
 package com.oracle.svm.core.jdk;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.channels.FileChannel;
 import java.nio.channels.SeekableByteChannel;
-import java.nio.file.AccessDeniedException;
 import java.nio.file.AccessMode;
 import java.nio.file.CopyOption;
 import java.nio.file.DirectoryStream;
@@ -12,8 +15,10 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystemAlreadyExistsException;
 import java.nio.file.FileSystemNotFoundException;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.ProviderMismatchException;
 import java.nio.file.ReadOnlyFileSystemException;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -24,54 +29,27 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * ResourcesFileSystemProvider is a core class that supports building a custom file system on top of
- * resources in the native image.
- *
- * <p>
- * Resources are collected in build time in {@link ResourcesFeature} and stored in a hash map in
- * {@link Resources} class. We are supporting only resources that are on the classpath.
- * </p>
- *
- * <p>
- * ResourceFileSystemProvider exposes methods for creating a new file system, getting existing one
- * or doing operations like getting file attributes, getting path appropriate for this file system,
- * checking access rights, etc. Operations like moving files, copying files, deleting files, setting
- * file attributes, or creating directories are not permitted because the custom file system that we
- * are building on top of resources is read-only. The reason behind this restriction is that native
- * image resources are part of the read-only heap, so they are not changeable.
- * </p>
- *
- * <p>
- * Most of operations mentioned above aren't accessed directly i.e. by calling methods from this
- * file system provider, however their are called indirectly from accessing method from
- * {@link java.nio.file.Files}.
- * </p>
- *
- * @author jovanstevanovic
- * @see ResourceFileSystem
- * @see ResourceAttributes
- * @see ResourceAttributesView
- */
 public class ResourceFileSystemProvider extends FileSystemProvider {
 
-    // TODO: Add support for removing File systems.
-    private final Map<String, ResourceFileSystem> filesystems = new HashMap<>();
+    private final Map<Path, ResourceFileSystem> filesystems = new HashMap<>();
 
-    // TODO: Need enhancement.
-    private String uriToPath(URI uri) {
+    private Path uriToPath(URI uri) {
         String scheme = uri.getScheme();
         if ((scheme == null) || !scheme.equalsIgnoreCase(getScheme())) {
             throw new IllegalArgumentException("URI scheme is not '" + getScheme() + "'");
         }
 
-        // Syntax is resource:{uri}!/{entry}
-        String spec = uri.getRawSchemeSpecificPart();
-        int sep = spec.indexOf("!/");
-        if (sep != -1) {
-            spec = spec.substring(0, sep);
+        try {
+            // Syntax is resource:{uri}!/{entry}
+            String spec = uri.getRawSchemeSpecificPart();
+            int sep = spec.indexOf("!/");
+            if (sep != -1) {
+                spec = spec.substring(0, sep);
+            }
+            return Paths.get(new URI(spec)).toAbsolutePath();
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException(e.getMessage(), e);
         }
-        return spec;
     }
 
     private static ResourcePath toResourcePath(Path path) {
@@ -92,7 +70,7 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
     // TODO: Need further testing.
     @Override
     public FileSystem newFileSystem(URI uri, Map<String, ?> env) {
-        String path = uriToPath(uri);
+        Path path = uriToPath(uri);
         synchronized (filesystems) {
             if (filesystems.containsKey(path)) {
                 throw new FileSystemAlreadyExistsException();
@@ -101,6 +79,12 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
             filesystems.put(path, resourceFileSystem);
             return resourceFileSystem;
         }
+    }
+
+    // TODO: Implementation.
+    @Override
+    public FileSystem newFileSystem(Path path, Map<String, ?> env) throws IOException {
+        return super.newFileSystem(path, env);
     }
 
     // TODO: Need further testing.
@@ -126,7 +110,7 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
     }
 
     @Override
-    public SeekableByteChannel newByteChannel(Path path, Set<? extends OpenOption> options, FileAttribute<?>... attrs) {
+    public SeekableByteChannel newByteChannel(Path path, Set<? extends OpenOption> options, FileAttribute<?>... attrs) throws NoSuchFileException {
         return toResourcePath(path).newByteChannel(options, attrs);
     }
 
@@ -136,8 +120,8 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
     }
 
     @Override
-    public void createDirectory(Path dir, FileAttribute<?>... attrs) {
-        throw new ReadOnlyFileSystemException();
+    public void createDirectory(Path dir, FileAttribute<?>... attrs) throws IOException {
+        toResourcePath(dir).createDirectory(attrs);
     }
 
     @Override
@@ -168,22 +152,30 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
     // TODO: Implement FileStore.
     @Override
     public FileStore getFileStore(Path path) throws IOException {
-        return null;
+        return toResourcePath(path).getFileStore();
     }
 
     @Override
     public void checkAccess(Path path, AccessMode... modes) throws IOException {
-        for (AccessMode mode : modes) {
-            switch (mode) {
-                case READ:
-                    continue;
-                case WRITE:
-                case EXECUTE:
-                    throw new AccessDeniedException(toResourcePath(path).toString());
-                default:
-                    throw new UnsupportedOperationException();
-            }
-        }
+        toResourcePath(path).checkAccess(modes);
+    }
+
+    // TODO: Implementation.
+    @Override
+    public InputStream newInputStream(Path path, OpenOption... options) throws IOException {
+        return super.newInputStream(path, options);
+    }
+
+    // TODO: Implementation.
+    @Override
+    public OutputStream newOutputStream(Path path, OpenOption... options) throws IOException {
+        return super.newOutputStream(path, options);
+    }
+
+    // TODO: Implementation.
+    @Override
+    public FileChannel newFileChannel(Path path, Set<? extends OpenOption> options, FileAttribute<?>... attrs) throws IOException {
+        return super.newFileChannel(path, options, attrs);
     }
 
     @Override
@@ -206,7 +198,15 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
     }
 
     @Override
-    public void setAttribute(Path path, String attribute, Object value, LinkOption... options) {
-        throw new ReadOnlyFileSystemException();
+    public void setAttribute(Path path, String attribute, Object value, LinkOption... options) throws IOException {
+        toResourcePath(path).setAttribute(attribute, value, options);
+    }
+
+    void removeFileSystem(Path resourcePath, ResourceFileSystem resourceFileSystem) throws IOException {
+        synchronized (filesystems) {
+            resourcePath = resourcePath.toRealPath();
+            if (filesystems.get(resourcePath) == resourceFileSystem)
+                filesystems.remove(resourcePath);
+        }
     }
 }

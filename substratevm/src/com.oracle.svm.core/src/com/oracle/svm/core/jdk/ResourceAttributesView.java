@@ -1,7 +1,6 @@
 package com.oracle.svm.core.jdk;
 
 import java.io.IOException;
-import java.nio.file.ReadOnlyFileSystemException;
 import java.nio.file.attribute.BasicFileAttributeView;
 import java.nio.file.attribute.FileAttributeView;
 import java.nio.file.attribute.FileTime;
@@ -10,8 +9,7 @@ import java.util.Map;
 
 public class ResourceAttributesView implements BasicFileAttributeView {
 
-    private enum AttributeID
-    {
+    private enum AttributeID {
         size,
         creationTime,
         lastAccessTime,
@@ -68,6 +66,22 @@ public class ResourceAttributesView implements BasicFileAttributeView {
         return path.getAttributes();
     }
 
+    public void setAttribute(String attribute, Object value) throws IOException {
+        try {
+            if (AttributeID.valueOf(attribute) == AttributeID.lastModifiedTime) {
+                setTimes((FileTime) value, null, null);
+            }
+            if (AttributeID.valueOf(attribute) == AttributeID.lastAccessTime) {
+                setTimes(null, (FileTime) value, null);
+            }
+            if (AttributeID.valueOf(attribute) == AttributeID.creationTime) {
+                setTimes(null, null, (FileTime) value);
+            }
+        } catch (IllegalArgumentException x) {
+            throw new UnsupportedOperationException("'" + attribute + "' is unknown or read-only attribute");
+        }
+    }
+
     Map<String, Object> readAttributes(String attributes) throws IOException {
         ResourceAttributes resourceAttributes = readAttributes();
         LinkedHashMap<String, Object> map = new LinkedHashMap<>();
@@ -94,7 +108,7 @@ public class ResourceAttributesView implements BasicFileAttributeView {
 
     @Override
     public void setTimes(FileTime lastModifiedTime, FileTime lastAccessTime, FileTime createTime) throws IOException {
-        throw new ReadOnlyFileSystemException();
+        path.setTimes(lastModifiedTime, lastAccessTime, createTime);
     }
 
     Object attribute(AttributeID id, ResourceAttributes resourceAttributes) {

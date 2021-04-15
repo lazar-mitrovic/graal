@@ -3,8 +3,12 @@ package com.oracle.svm.core.jdk;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.channels.SeekableByteChannel;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.AccessMode;
 import java.nio.file.DirectoryStream;
+import java.nio.file.FileStore;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
@@ -16,6 +20,7 @@ import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.FileAttribute;
+import java.nio.file.attribute.FileTime;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
@@ -108,9 +113,9 @@ public class ResourcePath implements Path {
         }
         int offset = offsets[nbOffsets - 1];
         int length = path.length - offset;
-        byte[] path = new byte[length];
-        System.arraycopy(this.path, offset, path, 0, length);
-        return new ResourcePath(fileSystem, path);
+        byte[] newPath = new byte[length];
+        System.arraycopy(this.path, offset, newPath, 0, length);
+        return new ResourcePath(fileSystem, newPath);
     }
 
     @Override
@@ -124,9 +129,9 @@ public class ResourcePath implements Path {
         if (length <= 0) {
             return getRoot();
         }
-        byte[] path = new byte[length];
-        System.arraycopy(this.path, 0, path, 0, length);
-        return new ResourcePath(fileSystem, path);
+        byte[] newPath = new byte[length];
+        System.arraycopy(this.path, 0, newPath, 0, length);
+        return new ResourcePath(fileSystem, newPath);
     }
 
     @Override
@@ -157,9 +162,9 @@ public class ResourcePath implements Path {
     public Path subpath(int beginIndex, int endIndex) {
         initOffsets();
         if (beginIndex < 0 ||
-                        beginIndex >= offsets.length ||
-                        endIndex > offsets.length ||
-                        beginIndex >= endIndex) {
+                beginIndex >= offsets.length ||
+                endIndex > offsets.length ||
+                beginIndex >= endIndex) {
             throw new IllegalArgumentException();
         }
 
@@ -328,13 +333,21 @@ public class ResourcePath implements Path {
         return new ResourcePath(fileSystem, result);
     }
 
-    // TODO: Support URI.
     @Override
     public URI toUri() {
-        return null;
+        try {
+            return new URI(
+                    "resource",
+                    fileSystem.getResourcePath().toUri() +
+                            "!" +
+                            fileSystem.getString(toAbsolutePath().path),
+                    null
+            );
+        } catch (URISyntaxException e) {
+            throw new AssertionError(e);
+        }
     }
 
-    // TODO: Test method.
     @Override
     public ResourcePath toAbsolutePath() {
         if (isAbsolute()) {
@@ -426,8 +439,8 @@ public class ResourcePath implements Path {
     @Override
     public boolean equals(Object obj) {
         return obj instanceof ResourcePath &&
-                        this.fileSystem == ((ResourcePath) obj).fileSystem &&
-                        compareTo((Path) obj) == 0;
+                this.fileSystem == ((ResourcePath) obj).fileSystem &&
+                compareTo((Path) obj) == 0;
     }
 
     @Override
@@ -435,7 +448,7 @@ public class ResourcePath implements Path {
         return fileSystem.getString(path);
     }
 
-    public SeekableByteChannel newByteChannel(Set<? extends OpenOption> options, FileAttribute<?>[] attrs) {
+    public SeekableByteChannel newByteChannel(Set<? extends OpenOption> options, FileAttribute<?>[] attrs) throws NoSuchFileException {
         return fileSystem.newByteChannel(getResolvedPath(), options, attrs);
     }
 
@@ -582,7 +595,7 @@ public class ResourcePath implements Path {
                 continue;
             }
             if (m == 0 && path[0] == '/' ||   // absolute path
-                            m != 0 && to[m - 1] != '/') {   // not the first name
+                    m != 0 && to[m - 1] != '/') {   // not the first name
                 to[m++] = '/';
             }
             lastM[++lastMOff] = m;
@@ -622,6 +635,22 @@ public class ResourcePath implements Path {
         return true;
     }
 
+    boolean exists() {
+        try {
+            return fileSystem.exists(getResolvedPath());
+        } catch (IOException ignored) {
+        }
+        return false;
+    }
+
+    FileStore getFileStore() throws IOException {
+        // each ZipFileSystem only has one root (as requested for now)
+        if (exists()) {
+            return fileSystem.getFileStore(this);
+        }
+        throw new NoSuchFileException(fileSystem.getString(path));
+    }
+
     public boolean isSameFile(Path other) {
         if (this.equals(other)) {
             return true;
@@ -630,5 +659,51 @@ public class ResourcePath implements Path {
             return false;
         }
         return Arrays.equals(this.getResolvedPath(), ((ResourcePath) other).getResolvedPath());
+    }
+
+    public void checkAccess(AccessMode[] modes) throws IOException {
+        boolean x = false;
+        for (AccessMode mode : modes) {
+            switch (mode) {
+                case READ:
+                case WRITE:
+                    break;
+                case EXECUTE:
+                    x = true;
+                    break;
+                default:
+                    throw new UnsupportedOperationException();
+            }
+        }
+        fileSystem.checkAccess(getResolvedPath());
+        if (x) {
+            throw new AccessDeniedException(toString());
+        }
+    }
+
+    public void setAttribute(String attribute, Object value, LinkOption[] options) throws IOException {
+        String type;
+        String attr;
+        int colonPos = attribute.indexOf(':');
+        if (colonPos == -1) {
+            type = "basic";
+            attr = attribute;
+        } else {
+            type = attribute.substring(0, colonPos++);
+            attr = attribute.substring(colonPos);
+        }
+        ResourceAttributesView view = ResourceAttributesView.get(this, type);
+        if (view == null) {
+            throw new UnsupportedOperationException("View is not supported");
+        }
+        view.setAttribute(attr, value);
+    }
+
+    public void setTimes(FileTime lastModifiedTime, FileTime lastAccessTime, FileTime createTime) throws NoSuchFileException {
+        fileSystem.setTimes(getResolvedPath(), lastModifiedTime, lastAccessTime, createTime);
+    }
+
+    public void createDirectory(FileAttribute<?>[] attrs) throws IOException {
+        fileSystem.createDirectory(getResolvedPath(), attrs);
     }
 }

@@ -41,7 +41,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
@@ -60,7 +59,10 @@ import com.oracle.svm.core.annotate.AutomaticFeature;
 import com.oracle.svm.core.configure.ConfigurationFiles;
 import com.oracle.svm.core.configure.ResourceConfigurationParser;
 import com.oracle.svm.core.configure.ResourcesRegistry;
-import com.oracle.svm.core.jdk.localization.LocalizationFeature;
+import com.oracle.svm.core.jdk.LocalizationFeature;
+import com.oracle.svm.core.jdk.ResourceAttributes;
+import com.oracle.svm.core.jdk.ResourceAttributesView;
+import com.oracle.svm.core.jdk.ResourceFileSystem;
 import com.oracle.svm.core.jdk.Resources;
 import com.oracle.svm.core.option.HostedOptionKey;
 import com.oracle.svm.core.option.LocatableMultiOptionValue;
@@ -70,6 +72,35 @@ import com.oracle.svm.hosted.FeatureImpl.DuringAnalysisAccessImpl;
 import com.oracle.svm.hosted.config.ConfigurationParserUtils;
 import com.oracle.svm.util.ModuleSupport;
 
+/**
+ * <p>
+ * Resources are collected at build time in this feature and stored in a hash map in {@link Resources} class.
+ * </p>
+ *
+ * <p>
+ * {@link com.oracle.svm.core.jdk.ResourceFileSystemProvider } is a core class for building a custom
+ * file system on top of resources in the native image.
+ * </p>
+ *
+ * <p>
+ * ResourceFileSystemProvider exposes methods for creating a new file system, getting existing one
+ * or doing operations like getting file attributes, getting path appropriate for this file system,
+ * checking access rights, etc. Operations like moving files, copying files, deleting files, setting
+ * file attributes change the current state of file system and, these changes will persist till file system
+ * is open.
+ * </p>
+ *
+ * <p>
+ * Most of operations mentioned above aren't accessed directly i.e. by calling methods from this
+ * file system provider, however their are called indirectly from accessing method from
+ * {@link java.nio.file.Files}.
+ * </p>
+ *
+ * @author jovanstevanovic
+ * @see ResourceFileSystem
+ * @see ResourceAttributes
+ * @see ResourceAttributesView
+ */
 @AutomaticFeature
 public final class ResourcesFeature implements Feature {
 
@@ -115,8 +146,8 @@ public final class ResourcesFeature implements Feature {
         ImageClassLoader imageClassLoader = ((BeforeAnalysisAccessImpl) access).getImageClassLoader();
         ResourceConfigurationParser parser = new ResourceConfigurationParser(ImageSingletons.lookup(ResourcesRegistry.class));
         loadedConfigurations = ConfigurationParserUtils.parseAndRegisterConfigurations(parser, imageClassLoader, "resource",
-                        ConfigurationFiles.Options.ResourceConfigurationFiles, ConfigurationFiles.Options.ResourceConfigurationResources,
-                        ConfigurationFiles.RESOURCES_NAME);
+                ConfigurationFiles.Options.ResourceConfigurationFiles, ConfigurationFiles.Options.ResourceConfigurationResources,
+                ConfigurationFiles.RESOURCES_NAME);
 
         newResources.addAll(Options.IncludeResources.getValue().values());
         ignoredResources.addAll(Options.ExcludeResources.getValue().values());
@@ -136,7 +167,7 @@ public final class ResourcesFeature implements Feature {
         if (JavaVersionUtil.JAVA_SPEC > 8) {
             try {
                 ModuleSupport.findResourcesInModules(name -> matches(includePatterns, excludePatterns, name),
-                                (resName, content) -> registerResource(debugContext, resName, content));
+                        (resName, content) -> registerResource(debugContext, resName, content));
             } catch (IOException ex) {
                 throw UserError.abort(ex, "Can not read resources from modules. This is possible due to incorrect module path or missing module visibility directives");
             }
@@ -182,10 +213,10 @@ public final class ResourcesFeature implements Feature {
 
     private static Pattern[] compilePatterns(Set<String> patterns) {
         return patterns.stream()
-                        .filter(s -> s.length() > 0)
-                        .map(Pattern::compile)
-                        .collect(Collectors.toList())
-                        .toArray(new Pattern[]{});
+                .filter(s -> s.length() > 0)
+                .map(Pattern::compile)
+                .collect(Collectors.toList())
+                .toArray(new Pattern[]{});
     }
 
     @Override
