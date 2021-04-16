@@ -1,5 +1,7 @@
 package com.oracle.svm.core.jdk;
 
+import org.graalvm.collections.MapCursor;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -11,6 +13,8 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.ClosedFileSystemException;
+import java.nio.file.CopyOption;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileStore;
 import java.nio.file.FileSystem;
@@ -25,10 +29,12 @@ import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.UserPrincipalLookupService;
 import java.nio.file.spi.FileSystemProvider;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -55,6 +61,10 @@ public class ResourceFileSystem extends FileSystem {
 
     private final HashMap<String, Entry> entries = new HashMap<>();
 
+    private static final byte[] ROOT_PATH = new byte[]{'/'};
+    private final IndexNode LOOKUP_KEY = new IndexNode(null, true);
+    LinkedHashMap<IndexNode, IndexNode> inodes = new LinkedHashMap<>(10);
+
     public ResourceFileSystem(ResourceFileSystemProvider provider, Path resourcePath, Map<String, ?> env) {
         this.provider = provider;
         this.resourcePath = resourcePath;
@@ -62,6 +72,7 @@ public class ResourceFileSystem extends FileSystem {
         if (!"true".equals(env.get("create"))) {
             throw new FileSystemNotFoundException(resourcePath.toString());
         }
+        readAllEntries();
     }
 
     private void ensureOpen() {
@@ -123,7 +134,7 @@ public class ResourceFileSystem extends FileSystem {
 
     @Override
     public boolean isReadOnly() {
-        return true;
+        return false;
     }
 
     @Override
@@ -215,8 +226,7 @@ public class ResourceFileSystem extends FileSystem {
         throw new UnsupportedOperationException();
     }
 
-    // TODO: After recomposing resource storage, get with zero index will be replaced with
-    // appropriate one.
+    // TODO: After recomposing resource storage, get with zero index will be replaced with appropriate one.
     private Entry getEntry(byte[] path) {
         String pathString = getString(path);
         Entry entry = entries.get(pathString);
@@ -232,11 +242,14 @@ public class ResourceFileSystem extends FileSystem {
         beginRead();
         try {
             ensureOpen();
-            entry = getEntry(path);
+            entry = getEntry0(path);
+            if (entry == null) {
+                return null;
+            }
         } finally {
             endRead();
         }
-        return new ResourceAttributes(entry);
+        return new ResourceAttributes(this, entry);
     }
 
     private void checkOptions(Set<? extends OpenOption> options) {
@@ -377,32 +390,39 @@ public class ResourceFileSystem extends FileSystem {
         }
     }
 
-    // TODO: Check tree structure if the path exists.
-    public boolean exists(byte[] resolvedPath) throws IOException {
-        return true;
+    public boolean exists(byte[] path) throws IOException {
+        beginRead();
+        try {
+            ensureOpen();
+            return getInode(path) != null;
+        } finally {
+            endRead();
+        }
     }
 
     public FileStore getFileStore(ResourcePath resourcePath) {
         return new ResourceFileStore(resourcePath);
     }
 
-    public void checkAccess(byte[] path) {
+    public void checkAccess(byte[] path) throws NoSuchFileException {
         beginRead();
         try {
             ensureOpen();
-            // TODO: Access file in index structure. If it's not present, throw throw new NoSuchFileException(toString())
+            if (getInode(path) == null) {
+                throw new NoSuchFileException(toString());
+            }
         } finally {
             endRead();
         }
     }
 
-    public void setTimes(byte[] resolvedPath, FileTime lastModifiedTime, FileTime lastAccessTime, FileTime createTime) throws NoSuchFileException {
+    public void setTimes(byte[] path, FileTime lastModifiedTime, FileTime lastAccessTime, FileTime createTime) throws NoSuchFileException {
         beginWrite();
         try {
             ensureOpen();
-            Entry e = getEntry(resolvedPath);
+            Entry e = getEntry0(path);
             if (e == null) {
-                throw new NoSuchFileException(getString(resolvedPath));
+                throw new NoSuchFileException(getString(path));
             }
             if (lastModifiedTime != null) {
                 e.lastModifiedTime = lastModifiedTime.toMillis();
@@ -413,47 +433,408 @@ public class ResourceFileSystem extends FileSystem {
             if (createTime != null) {
                 e.createTime = createTime.toMillis();
             }
-            // TODO: Update tree hierarchy;
+            update(e);
         } finally {
             endWrite();
         }
     }
 
-    public void createDirectory(byte[] dir, FileAttribute<?>[] attrs) throws IOException {
+    boolean isDirectory(byte[] path) {
+        beginRead();
+        try {
+            IndexNode n = getInode(path);
+            return n != null && n.isDir();
+        } finally {
+            endRead();
+        }
+    }
+
+    public void createDirectory(byte[] dir, FileAttribute<?>... attrs) throws IOException {
         beginWrite();
         try {
             ensureOpen();
-            if (dir.length == 0 || exists(dir))  // root dir, or exiting dir
+            if (dir.length == 0 || exists(dir)) {
                 throw new FileAlreadyExistsException(getString(dir));
-            // TODO: Insert new node in tree like structure.
+            }
+            checkParents(dir);
+            Entry e = new Entry(dir, Entry.NEW, true);
+            update(e);
         } finally {
             endWrite();
         }
-
     }
 
-    // TODO: Add support for checking if path is directory.
-    // TODO: Size should be 0, if the path is directory.
-    public class Entry {
+    public boolean deleteFile(byte[] path, boolean failIfNotExists) throws IOException {
+        IndexNode inode = getInode(path);
+        if (inode == null) {
+            if (path != null && path.length == 0) {
+                throw new ResourceException("Root directory </> can't not be deleted!");
+            }
+            if (failIfNotExists) {
+                throw new NoSuchFileException(getString(path));
+            } else {
+                return false;
+            }
+        } else {
+            if (inode.isDir() && inode.child != null) {
+                throw new DirectoryNotEmptyException(getString(path));
+            }
+            updateDelete(inode);
+        }
+        return true;
+    }
 
-        private final byte[] path;
-        private final int size;
+    // TODO: Implementation.
+    public void copyFile(boolean deleteSource, byte[] src, byte[] dst, CopyOption[] options) throws IOException {
+    }
+
+    private void checkParents(byte[] path) throws IOException {
+        beginRead();
+        try {
+            while ((path = getParent(path)) != null && path != ROOT_PATH) {
+                if (!inodes.containsKey(IndexNode.keyOf(path))) {
+                    throw new NoSuchFileException(getString(path));
+                }
+            }
+        } finally {
+            endRead();
+        }
+    }
+
+    IndexNode getInode(byte[] path) {
+        if (path == null) {
+            throw new NullPointerException("Path is null!");
+        }
+        return inodes.get(IndexNode.keyOf(path));
+    }
+
+    Entry getEntry0(byte[] path) {
+        IndexNode inode = getInode(path);
+        if (inode instanceof Entry) {
+            return (Entry) inode;
+        }
+        if (inode == null) {
+            return null;
+        }
+        return new Entry(inode.name, inode.isDir);
+    }
+
+    static byte[] getParent(byte[] path) {
+        int off = getParentOff(path);
+        if (off <= 1) {
+            return ROOT_PATH;
+        }
+        return Arrays.copyOf(path, off);
+    }
+
+    private static int getParentOff(byte[] path) {
+        int off = path.length - 1;
+        if (off > 0 && path[off] == '/') {
+            off--;
+        }
+        while (off > 0 && path[off] != '/') {
+            off--;
+        }
+        return off;
+    }
+
+    private void removeFromTree(IndexNode inode) {
+        IndexNode parent = inodes.get(LOOKUP_KEY.as(getParent(inode.name)));
+        IndexNode child = parent.child;
+        if (child.equals(inode)) {
+            parent.child = child.sibling;
+        } else {
+            IndexNode last = child;
+            while ((child = child.sibling) != null) {
+                if (child.equals(inode)) {
+                    last.sibling = child.sibling;
+                    break;
+                } else {
+                    last = child;
+                }
+            }
+        }
+    }
+
+    private void updateDelete(IndexNode inode) {
+        beginWrite();
+        try {
+            removeFromTree(inode);
+            inodes.remove(inode);
+        } finally {
+            endWrite();
+        }
+    }
+
+    private void update(Entry e) {
+        beginWrite();
+        try {
+            IndexNode old = inodes.put(e, e);
+            if (old != null) {
+                removeFromTree(old);
+            }
+            if (e.type == Entry.NEW || e.type == Entry.FILE_CH || e.type == Entry.COPY) {
+                IndexNode parent = inodes.get(LOOKUP_KEY.as(getParent(e.name)));
+                e.sibling = parent.child;
+                parent.child = e;
+            }
+        } finally {
+            endWrite();
+        }
+    }
+
+    boolean isDir(byte[] name) {
+        return name != null && (name.length == 0 || name[name.length - 1] == '/');
+    }
+
+    private void readAllEntries() {
+        MapCursor<String, List<byte[]>> entries = Resources.singleton().resources().getEntries();
+        while (entries.advance()) {
+            byte[] name = getBytes(entries.getKey());
+            boolean isDir = isDir(name);
+            if (!isDir) {
+                IndexNode newIndexNode = new IndexNode(name, false);
+                inodes.put(newIndexNode, newIndexNode);
+            }
+        }
+        buildNodeTree();
+    }
+
+    private void buildNodeTree() {
+        beginWrite();
+        try {
+            IndexNode root = inodes.get(LOOKUP_KEY.as(ROOT_PATH));
+            if (root == null) {
+                root = new IndexNode(ROOT_PATH, true);
+            } else {
+                inodes.remove(root);
+            }
+            IndexNode[] nodes = inodes.keySet().toArray(new IndexNode[0]);
+            inodes.put(root, root);
+            ParentLookup lookup = new ParentLookup();
+            for (IndexNode node : nodes) {
+                IndexNode parent;
+                while (true) {
+                    int off = getParentOff(node.name);
+                    if (off <= 1) {    // parent is root
+                        node.sibling = root.child;
+                        root.child = node;
+                        break;
+                    }
+                    lookup = lookup.as(node.name, off);
+                    if (inodes.containsKey(lookup)) {
+                        parent = inodes.get(lookup);
+                        node.sibling = parent.child;
+                        parent.child = node;
+                        break;
+                    }
+                    // add new pseudo directory entry
+                    parent = new IndexNode(Arrays.copyOf(node.name, off), true);
+                    inodes.put(parent, parent);
+                    node.sibling = parent.child;
+                    parent.child = node;
+                    node = parent;
+                }
+            }
+        } finally {
+            endWrite();
+        }
+    }
+
+    // Temporary, for debug purpose.
+    void printTree() {
+        System.out.println(">>> Tree...");
+        IndexNode node = inodes.get(LOOKUP_KEY.as(ROOT_PATH));
+        node = node.child;
+        ArrayList<IndexNode> queue = new ArrayList<>();
+        queue.add(node);
+        while (!queue.isEmpty()) {
+            node = queue.remove(0);
+            while (node != null) {
+                System.out.println(getString(node.name) + " " + node.isDir);
+                queue.add(node.child);
+                node = node.sibling;
+            }
+            System.out.println("------");
+        }
+    }
+
+    private static class IndexNode {
+
+        private static final ThreadLocal<IndexNode> cachedKey = new ThreadLocal<>();
+
+        byte[] name;
+        int hashcode;
+        boolean isDir;
+
+        IndexNode child;
+        IndexNode sibling;
+
+        IndexNode() {
+        }
+
+        IndexNode(byte[] name) {
+            name(name);
+        }
+
+        IndexNode(byte[] name, boolean isDir) {
+            name(name);
+            this.isDir = isDir;
+        }
+
+        // TODO: Need further testing.
+        private byte[] normalize(byte[] path) {
+            int len = path.length;
+            if (len == 0)
+                return path;
+            byte prevC = 0;
+            for (int pathPos = 0; pathPos < len; pathPos++) {
+                byte c = path[pathPos];
+                if (c == '/' && prevC == '/') {
+                    return normalize(path, pathPos - 1);
+                }
+                prevC = c;
+            }
+            if (len > 1 && prevC == '/') {
+                return Arrays.copyOf(path, len - 1);
+            }
+            return path;
+        }
+
+        private byte[] normalize(byte[] path, int off) {
+            byte[] to = new byte[path.length - 1];
+            int pathPos = 0;
+            while (pathPos < off) {
+                to[pathPos] = path[pathPos];
+                pathPos++;
+            }
+            int toPos = pathPos;
+            byte prevC = 0;
+            while (pathPos < path.length) {
+                byte c = path[pathPos++];
+                if (c == '/' && prevC == '/') {
+                    continue;
+                }
+                to[toPos++] = c;
+                prevC = c;
+            }
+            if (toPos > 1 && to[toPos - 1] == '/') {
+                toPos--;
+            }
+            return (toPos == to.length) ? to : Arrays.copyOf(to, toPos);
+        }
+
+        static IndexNode keyOf(byte[] name) {
+            IndexNode key = cachedKey.get();
+            if (key == null) {
+                key = new IndexNode(name);
+                cachedKey.set(key);
+            }
+            return key.as(name);
+        }
+
+        final void name(byte[] name) {
+            this.name = name;
+            this.hashcode = Arrays.hashCode(name);
+        }
+
+        final IndexNode as(byte[] name) {
+            name(name);
+            return this;
+        }
+
+        boolean isDir() {
+            return isDir;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof IndexNode)) {
+                return false;
+            }
+            if (other instanceof ParentLookup) {
+                return other.equals(this);
+            }
+            return Arrays.equals(name, ((IndexNode) other).name);
+        }
+
+        @Override
+        public int hashCode() {
+            return hashcode;
+        }
+    }
+
+    // For parent lookup, so we don't have to copy the parent name every time.
+    private static class ParentLookup extends IndexNode {
+
+        int length;
+
+        ParentLookup() {
+        }
+
+        ParentLookup as(byte[] name, int length) {
+            name(name, length);
+            return this;
+        }
+
+        void name(byte[] name, int length) {
+            this.name = name;
+            this.length = length;
+            int result = 1;
+            for (int i = 0; i < length; i++) {
+                result = 31 * result + name[i];
+            }
+            this.hashcode = result;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof IndexNode)) {
+                return false;
+            }
+            byte[] otherName = ((IndexNode) other).name;
+            return Arrays.equals(name, 0, length, otherName, 0, otherName.length);
+        }
+    }
+
+    class Entry extends IndexNode {
+
+        private static final int NEW = 1;       // Updated contents in bytes or file.
+        private static final int FILE_CH = 2;   // File channel update in file.
+        private static final int COPY = 3;      // Copy entry.
+
+        private int size;
+        public int type;
         public long lastModifiedTime;
         public long lastAccessTime;
         public long createTime;
 
-        public Entry(byte[] path, int size) {
-            this.path = path;
+        public Entry(byte[] name, int size) {
+            name(name);
             this.size = size;
             this.lastModifiedTime = this.lastAccessTime = this.createTime = ResourceFileSystem.this.defaultTimeStamp;
         }
 
-        public boolean isDirectory() {
-            return false;
+        public Entry(byte[] name, boolean isDir) {
+            name(name);
+            this.type = Entry.NEW;
+            this.isDir = isDir;
+            this.lastModifiedTime = this.lastAccessTime = this.createTime = ResourceFileSystem.this.defaultTimeStamp;
         }
 
+        public Entry(byte[] name, int type, boolean isDir) {
+            name(name);
+            this.type = type;
+            this.isDir = isDir;
+        }
+
+        public boolean isDirectory() {
+            return isDir;
+        }
+
+        // TODO: Maybe it will be better to do this in another way.
         public long size() {
-            return size;
+            return !isDir ? size : 0;
         }
     }
 }

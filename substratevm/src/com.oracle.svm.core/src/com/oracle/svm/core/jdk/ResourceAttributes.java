@@ -6,10 +6,16 @@ import java.util.Formatter;
 
 public class ResourceAttributes implements BasicFileAttributes {
 
+    private final ResourceFileSystem fileSystem;
     private final ResourceFileSystem.Entry entry;
 
-    public ResourceAttributes(ResourceFileSystem.Entry entry) {
+    public ResourceAttributes(ResourceFileSystem fileSystem, ResourceFileSystem.Entry entry) {
+        this.fileSystem = fileSystem;
         this.entry = entry;
+    }
+
+    public String getName() {
+        return fileSystem.getString(entry.name);
     }
 
     @Override
@@ -62,6 +68,7 @@ public class ResourceAttributes implements BasicFileAttributes {
     public String toString() {
         StringBuilder sb = new StringBuilder(1024);
         Formatter fm = new Formatter(sb);
+        fm.format("    name            : %s%n", getName());
         fm.format("    creationTime    : %tc%n", creationTime().toMillis());
         fm.format("    lastAccessTime  : %tc%n", lastAccessTime().toMillis());
         fm.format("    lastModifiedTime: %tc%n", lastModifiedTime().toMillis());

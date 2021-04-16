@@ -3,6 +3,7 @@ package com.oracle.svm.core.jdk;
 import java.io.IOException;
 import java.nio.file.ClosedDirectoryStreamException;
 import java.nio.file.DirectoryStream;
+import java.nio.file.NotDirectoryException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -16,10 +17,13 @@ public class ResourceDirectoryStream implements DirectoryStream<Path> {
     private volatile boolean isClosed = false;
     private final List<String> data;
 
-    public ResourceDirectoryStream(ResourcePath path, Filter<? super Path> filter) {
+    public ResourceDirectoryStream(ResourcePath path, Filter<? super Path> filter) throws IOException {
         this.fileSystem = path.getFileSystem();
         this.filter = filter;
         this.data = formatDirData(path);
+        if (!fileSystem.isDirectory(path.getResolvedPath())) {
+            throw new NotDirectoryException(path.toString());
+        }
     }
 
     // TODO: After recomposing resource storage, get with zero index will be replaced with
@@ -29,7 +33,6 @@ public class ResourceDirectoryStream implements DirectoryStream<Path> {
         return Arrays.asList(fileSystem.getString(data).split("\n"));
     }
 
-    // TODO: Check if send file is directory.
     // TODO: We need to filter data, based on filter parameter.
     @Override
     public Iterator<Path> iterator() {

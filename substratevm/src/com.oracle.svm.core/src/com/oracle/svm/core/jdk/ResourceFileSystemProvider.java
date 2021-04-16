@@ -20,7 +20,6 @@ import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.ProviderMismatchException;
-import java.nio.file.ReadOnlyFileSystemException;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.FileAttributeView;
@@ -115,7 +114,7 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
     }
 
     @Override
-    public DirectoryStream<Path> newDirectoryStream(Path dir, DirectoryStream.Filter<? super Path> filter) {
+    public DirectoryStream<Path> newDirectoryStream(Path dir, DirectoryStream.Filter<? super Path> filter) throws IOException {
         return toResourcePath(dir).newDirectoryStream(filter);
     }
 
@@ -126,17 +125,22 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
 
     @Override
     public void delete(Path path) throws IOException {
-        throw new ReadOnlyFileSystemException();
+        toResourcePath(path).delete();
+    }
+
+    @Override
+    public boolean deleteIfExists(Path path) throws IOException {
+        return toResourcePath(path).deleteIfExists();
     }
 
     @Override
     public void copy(Path source, Path target, CopyOption... options) throws IOException {
-        throw new ReadOnlyFileSystemException();
+        toResourcePath(source).copy(toResourcePath(target), options);
     }
 
     @Override
     public void move(Path source, Path target, CopyOption... options) throws IOException {
-        throw new ReadOnlyFileSystemException();
+        toResourcePath(source).move(toResourcePath(target), options);
     }
 
     @Override

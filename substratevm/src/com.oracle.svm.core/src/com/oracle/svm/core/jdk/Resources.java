@@ -110,11 +110,12 @@ public final class Resources {
          */
         Resources support = singleton();
 
+        // TODO: Need further thinking.
         byte[] arr = content.getBytes();
-        List<byte[]> list = support.resources.get(dir);
+        List<byte[]> list = support.resources.get(dir + "/");
         if (list == null) {
             list = new ArrayList<>();
-            support.resources.put(dir, list);
+            support.resources.put(dir + "/", list);
         }
         list.add(arr);
     }

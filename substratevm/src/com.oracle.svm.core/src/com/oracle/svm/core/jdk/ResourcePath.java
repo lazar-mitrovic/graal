@@ -7,8 +7,10 @@ import java.net.URISyntaxException;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.AccessMode;
+import java.nio.file.CopyOption;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileStore;
+import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
@@ -452,7 +454,7 @@ public class ResourcePath implements Path {
         return fileSystem.newByteChannel(getResolvedPath(), options, attrs);
     }
 
-    public DirectoryStream<Path> newDirectoryStream(DirectoryStream.Filter<? super Path> filter) {
+    public DirectoryStream<Path> newDirectoryStream(DirectoryStream.Filter<? super Path> filter) throws IOException {
         return new ResourceDirectoryStream(this, filter);
     }
 
@@ -644,7 +646,6 @@ public class ResourcePath implements Path {
     }
 
     FileStore getFileStore() throws IOException {
-        // each ZipFileSystem only has one root (as requested for now)
         if (exists()) {
             return fileSystem.getFileStore(this);
         }
@@ -705,5 +706,34 @@ public class ResourcePath implements Path {
 
     public void createDirectory(FileAttribute<?>[] attrs) throws IOException {
         fileSystem.createDirectory(getResolvedPath(), attrs);
+    }
+
+    public void delete() throws IOException {
+        fileSystem.deleteFile(getResolvedPath(), true);
+    }
+
+    public boolean deleteIfExists() throws IOException {
+        return fileSystem.deleteFile(getResolvedPath(), false);
+    }
+
+    public void move(ResourcePath target, CopyOption[] options) throws IOException {
+        if (Files.isSameFile(this.fileSystem.getResourcePath(), target.fileSystem.getResourcePath())) {
+            fileSystem.copyFile(true, getResolvedPath(), target.getResolvedPath(), options);
+        } else {
+            copyToTarget(target, options);
+            delete();
+        }
+    }
+
+    public void copy(ResourcePath target, CopyOption[] options) throws IOException {
+        if (Files.isSameFile(this.fileSystem.getResourcePath(), target.fileSystem.getResourcePath())) {
+            fileSystem.copyFile(false, getResolvedPath(), target.getResolvedPath(), options);
+        } else {
+            copyToTarget(target, options);
+        }
+    }
+
+    // TODO: Implementation.
+    private void copyToTarget(ResourcePath target, CopyOption[] options) {
     }
 }
