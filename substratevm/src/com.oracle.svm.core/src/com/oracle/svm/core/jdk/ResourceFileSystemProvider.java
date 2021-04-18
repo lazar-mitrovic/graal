@@ -15,7 +15,6 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystemAlreadyExistsException;
 import java.nio.file.FileSystemNotFoundException;
 import java.nio.file.LinkOption;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -109,7 +108,7 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
     }
 
     @Override
-    public SeekableByteChannel newByteChannel(Path path, Set<? extends OpenOption> options, FileAttribute<?>... attrs) throws NoSuchFileException {
+    public SeekableByteChannel newByteChannel(Path path, Set<? extends OpenOption> options, FileAttribute<?>... attrs) throws IOException {
         return toResourcePath(path).newByteChannel(options, attrs);
     }
 
@@ -164,22 +163,19 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
         toResourcePath(path).checkAccess(modes);
     }
 
-    // TODO: Implementation.
     @Override
     public InputStream newInputStream(Path path, OpenOption... options) throws IOException {
-        return super.newInputStream(path, options);
+        return toResourcePath(path).newInputStream(options);
     }
 
-    // TODO: Implementation.
     @Override
     public OutputStream newOutputStream(Path path, OpenOption... options) throws IOException {
-        return super.newOutputStream(path, options);
+        return toResourcePath(path).newOutputStream(options);
     }
 
-    // TODO: Implementation.
     @Override
     public FileChannel newFileChannel(Path path, Set<? extends OpenOption> options, FileAttribute<?>... attrs) throws IOException {
-        return super.newFileChannel(path, options, attrs);
+        return toResourcePath(path).newFileChannel(options, attrs);
     }
 
     @Override

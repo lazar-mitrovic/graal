@@ -4,10 +4,14 @@ import org.graalvm.collections.MapCursor;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FilterOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
-import java.nio.channels.Channels;
-import java.nio.channels.NonWritableChannelException;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.channels.WritableByteChannel;
@@ -18,7 +22,9 @@ import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileStore;
 import java.nio.file.FileSystem;
+import java.nio.file.FileSystemException;
 import java.nio.file.FileSystemNotFoundException;
+import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
@@ -32,15 +38,25 @@ import java.nio.file.spi.FileSystemProvider;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Pattern;
+
+import static java.lang.Boolean.TRUE;
+import static java.nio.file.StandardCopyOption.COPY_ATTRIBUTES;
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+import static java.nio.file.StandardOpenOption.APPEND;
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.CREATE_NEW;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 // TODO: Add support for encoding/decoding based on env parameter.
 public class ResourceFileSystem extends FileSystem {
@@ -51,15 +67,17 @@ public class ResourceFileSystem extends FileSystem {
     private static final Set<String> supportedFileAttributeViews = Collections.unmodifiableSet(
             new HashSet<>(Arrays.asList("basic", "resource")));
 
+    private final Set<InputStream> streams = Collections.synchronizedSet(new HashSet<>());
+    private final Set<Path> tmpPaths = Collections.synchronizedSet(new HashSet<Path>());
+
     private final long defaultTimeStamp = System.currentTimeMillis();
 
     private final ResourceFileSystemProvider provider;
     private final Path resourcePath;
     private final ResourcePath root;
     private boolean isOpen = true;
+    private final boolean useTempFile;
     private final ReadWriteLock rwlock = new ReentrantReadWriteLock();
-
-    private final HashMap<String, Entry> entries = new HashMap<>();
 
     private static final byte[] ROOT_PATH = new byte[]{'/'};
     private final IndexNode LOOKUP_KEY = new IndexNode(null, true);
@@ -69,10 +87,16 @@ public class ResourceFileSystem extends FileSystem {
         this.provider = provider;
         this.resourcePath = resourcePath;
         this.root = new ResourcePath(this, new byte[]{'/'});
-        if (!"true".equals(env.get("create"))) {
+        if (!isTrue(env, "create")) {
             throw new FileSystemNotFoundException(resourcePath.toString());
         }
+        this.useTempFile = isTrue(env, "useTempFile");
         readAllEntries();
+    }
+
+    // returns true if there is a name=true/"true" setting in env
+    private static boolean isTrue(Map<String, ?> env, String name) {
+        return "true".equals(env.get(name)) || TRUE.equals(env.get(name));
     }
 
     private void ensureOpen() {
@@ -122,6 +146,12 @@ public class ResourceFileSystem extends FileSystem {
             isOpen = false;
         } finally {
             endWrite();
+        }
+
+        if (!streams.isEmpty()) {    // Unlock and close all remaining streams.
+            Set<InputStream> copy = new HashSet<>(streams);
+            for (InputStream is : copy)
+                is.close();
         }
 
         provider.removeFileSystem(resourcePath, this);
@@ -226,23 +256,12 @@ public class ResourceFileSystem extends FileSystem {
         throw new UnsupportedOperationException();
     }
 
-    // TODO: After recomposing resource storage, get with zero index will be replaced with appropriate one.
-    private Entry getEntry(byte[] path) {
-        String pathString = getString(path);
-        Entry entry = entries.get(pathString);
-        if (entry == null) {
-            entry = new Entry(path, Resources.get(pathString).get(0).length);
-            entries.put(pathString, entry);
-        }
-        return entry;
-    }
-
     public ResourceAttributes getFileAttributes(byte[] path) {
         Entry entry;
         beginRead();
         try {
             ensureOpen();
-            entry = getEntry0(path);
+            entry = getEntry(path);
             if (entry == null) {
                 return null;
             }
@@ -261,70 +280,42 @@ public class ResourceFileSystem extends FileSystem {
                 throw new IllegalArgumentException();
             }
         }
+        if (options.contains(APPEND) && options.contains(TRUNCATE_EXISTING)) {
+            throw new IllegalArgumentException("APPEND + TRUNCATE_EXISTING are not allowed!");
+        }
     }
 
-    // TODO: Add check if path is pointing to dir or regular file.
-    // TODO: After recomposing resource storage, get with zero index will be replaced with appropriate one.
     // TODO: Need enhancement.
-    public SeekableByteChannel newByteChannel(byte[] path, Set<? extends OpenOption> options, FileAttribute<?>[] attrs) throws NoSuchFileException {
+    public SeekableByteChannel newByteChannel(byte[] path, Set<? extends OpenOption> options, FileAttribute<?>[] attrs) throws IOException {
         checkOptions(options);
-        byte[] data = Resources.get(getString(path)).get(0);
         if (options.contains(StandardOpenOption.WRITE) || options.contains(StandardOpenOption.APPEND)) {
-            beginRead();
+            beginRead();    // only need a read lock, the "update()" will obtain the write lock when the channel is closed
             try {
-                final WritableByteChannel wbc = Channels.newChannel(new ByteArrayOutputStream(1024));
-                long leftover = 0;
-                if (options.contains(StandardOpenOption.APPEND)) {
-                    Entry e = getEntry(path);
-                    if (e != null && e.size >= 0)
-                        leftover = e.size;
+                Entry e = getEntry(path);
+                if (e != null) {
+                    if (e.isDir() || options.contains(CREATE_NEW)) {
+                        throw new FileAlreadyExistsException(getString(path));
+                    }
+                    SeekableByteChannel sbc = new EntryOutputChannel(new Entry(e, Entry.NEW));
+                    if (options.contains(APPEND)) {
+                        try (InputStream is = getInputStream(e)) {
+                            byte[] buf = new byte[8192];
+                            ByteBuffer bb = ByteBuffer.wrap(buf);
+                            int n;
+                            while ((n = is.read(buf)) != -1) {
+                                bb.position(0);
+                                bb.limit(n);
+                                sbc.write(bb);
+                            }
+                        }
+                    }
+                    return sbc;
                 }
-                final long offset = leftover;
-                return new SeekableByteChannel() {
-                    long written = offset;
-
-                    @Override
-                    public boolean isOpen() {
-                        return wbc.isOpen();
-                    }
-
-                    @Override
-                    public long position() {
-                        return written;
-                    }
-
-                    @Override
-                    public SeekableByteChannel position(long pos) {
-                        throw new UnsupportedOperationException();
-                    }
-
-                    @Override
-                    public int read(ByteBuffer dst) {
-                        throw new UnsupportedOperationException();
-                    }
-
-                    @Override
-                    public SeekableByteChannel truncate(long size) {
-                        throw new UnsupportedOperationException();
-                    }
-
-                    @Override
-                    public int write(ByteBuffer src) throws IOException {
-                        int n = wbc.write(src);
-                        written += n;
-                        return n;
-                    }
-
-                    @Override
-                    public long size() throws IOException {
-                        return written;
-                    }
-
-                    @Override
-                    public void close() throws IOException {
-                        wbc.close();
-                    }
-                };
+                if (!options.contains(CREATE) && !options.contains(CREATE_NEW)) {
+                    throw new NoSuchFileException(getString(path));
+                }
+                checkParents(path);
+                return new EntryOutputChannel(new Entry(path, false));
             } finally {
                 endRead();
             }
@@ -332,58 +323,13 @@ public class ResourceFileSystem extends FileSystem {
             beginRead();
             try {
                 ensureOpen();
-                Entry entry = getEntry(path);
-                if (entry == null || entry.isDirectory()) {
+                Entry e = getEntry(path);
+                if (e == null || e.isDir()) {
                     throw new NoSuchFileException(getString(path));
                 }
-                final ReadableByteChannel rbc = Channels.newChannel(new ByteArrayInputStream(data));
-                return new SeekableByteChannel() {
-                    long read = 0;
-
-                    @Override
-                    public boolean isOpen() {
-                        return rbc.isOpen();
-                    }
-
-                    @Override
-                    public long position() {
-                        return read;
-                    }
-
-                    @Override
-                    public SeekableByteChannel position(long pos) {
-                        throw new UnsupportedOperationException();
-                    }
-
-                    @Override
-                    public int read(ByteBuffer dst) throws IOException {
-                        int n = rbc.read(dst);
-                        if (n > 0) {
-                            read += n;
-                        }
-                        return n;
-                    }
-
-                    @Override
-                    public SeekableByteChannel truncate(long size) {
-                        throw new NonWritableChannelException();
-                    }
-
-                    @Override
-                    public int write(ByteBuffer src) {
-                        throw new NonWritableChannelException();
-                    }
-
-                    @Override
-                    public long size() {
-                        return data.length;
-                    }
-
-                    @Override
-                    public void close() throws IOException {
-                        rbc.close();
-                    }
-                };
+                try (InputStream is = getInputStream(e)) {
+                    return new ByteArrayChannel(is.readAllBytes(), true);
+                }
             } finally {
                 endRead();
             }
@@ -420,7 +366,7 @@ public class ResourceFileSystem extends FileSystem {
         beginWrite();
         try {
             ensureOpen();
-            Entry e = getEntry0(path);
+            Entry e = getEntry(path);
             if (e == null) {
                 throw new NoSuchFileException(getString(path));
             }
@@ -457,7 +403,7 @@ public class ResourceFileSystem extends FileSystem {
                 throw new FileAlreadyExistsException(getString(dir));
             }
             checkParents(dir);
-            Entry e = new Entry(dir, Entry.NEW, true);
+            Entry e = new Entry(dir, true);
             update(e);
         } finally {
             endWrite();
@@ -484,8 +430,93 @@ public class ResourceFileSystem extends FileSystem {
         return true;
     }
 
-    // TODO: Implementation.
+    private Path createTempFileInSameDirectoryAs(Path path) throws IOException {
+        Path parent = path.toAbsolutePath().getParent();
+        Path dir = (parent == null) ? path.getFileSystem().getPath(".") : parent;
+        Path tmpPath = Files.createTempFile(dir, "rfs_tmp", null);
+        tmpPaths.add(tmpPath);
+        return tmpPath;
+    }
+
+    private Path getTempPathForEntry(byte[] path) throws IOException {
+        Path tmpPath = createTempFileInSameDirectoryAs(resourcePath);
+        if (path != null) {
+            Entry e = getEntry(path);
+            if (e != null) {
+                try (InputStream is = newInputStream(path)) {
+                    Files.copy(is, tmpPath, REPLACE_EXISTING);
+                }
+            }
+        }
+
+        return tmpPath;
+    }
+
+    private void removeTempPathForEntry(Path path) throws IOException {
+        Files.delete(path);
+        tmpPaths.remove(path);
+    }
+
     public void copyFile(boolean deleteSource, byte[] src, byte[] dst, CopyOption[] options) throws IOException {
+        if (Arrays.equals(src, dst)) {
+            return;    // Do nothing, src and dst are the same.
+        }
+
+        beginWrite();
+        try {
+            ensureOpen();
+            Entry eSrc = getEntry(src);  // ensureOpen checked
+
+            if (eSrc == null) {
+                throw new NoSuchFileException(getString(src));
+            }
+            if (eSrc.isDir()) {    // spec says to create dst dir
+                createDirectory(dst);
+                return;
+            }
+            boolean hasReplace = false;
+            boolean hasCopyAttrs = false;
+            for (CopyOption opt : options) {
+                if (opt == REPLACE_EXISTING) {
+                    hasReplace = true;
+                } else if (opt == COPY_ATTRIBUTES) {
+                    hasCopyAttrs = true;
+                }
+            }
+            Entry eDst = getEntry(dst);
+            if (eDst != null) {
+                if (!hasReplace) {
+                    throw new FileAlreadyExistsException(getString(dst));
+                }
+            } else {
+                checkParents(dst);
+            }
+            Entry target = new Entry(eSrc, Entry.COPY);  // Copy eSrc entry.
+            target.name(dst);                            // Change name.
+            if (eSrc.type == Entry.NEW || eSrc.type == Entry.FILE_CH) {
+                target.type = eSrc.type;    // Make it the same type.
+                if (deleteSource) {       // If it's a "rename", take the data
+                    target.bytes = eSrc.bytes;
+                    target.file = eSrc.file;
+                } else {               // If it's not "rename", copy the data.
+                    if (eSrc.bytes != null) {
+                        target.bytes = Arrays.copyOf(eSrc.bytes, eSrc.bytes.length);
+                    } else if (eSrc.file != null) {
+                        target.file = getTempPathForEntry(null);
+                        Files.copy(eSrc.file, target.file, REPLACE_EXISTING);
+                    }
+                }
+            }
+            if (!hasCopyAttrs) {
+                target.lastModifiedTime = target.lastAccessTime = target.createTime = System.currentTimeMillis();
+            }
+            update(target);
+            if (deleteSource) {
+                updateDelete(eSrc);
+            }
+        } finally {
+            endWrite();
+        }
     }
 
     private void checkParents(byte[] path) throws IOException {
@@ -508,7 +539,7 @@ public class ResourceFileSystem extends FileSystem {
         return inodes.get(IndexNode.keyOf(path));
     }
 
-    Entry getEntry0(byte[] path) {
+    Entry getEntry(byte[] path) {
         IndexNode inode = getInode(path);
         if (inode instanceof Entry) {
             return (Entry) inode;
@@ -588,7 +619,7 @@ public class ResourceFileSystem extends FileSystem {
     }
 
     private void readAllEntries() {
-        MapCursor<String, List<byte[]>> entries = Resources.singleton().resources().getEntries();
+        MapCursor<String, List<byte[]>> entries = ResourceStorage.iterator();
         while (entries.advance()) {
             byte[] name = getBytes(entries.getKey());
             boolean isDir = isDir(name);
@@ -656,6 +687,251 @@ public class ResourceFileSystem extends FileSystem {
                 node = node.sibling;
             }
             System.out.println("------");
+        }
+    }
+
+    private InputStream getInputStream(Entry e) throws IOException {
+        InputStream eis = null;
+        if (e.type == Entry.NEW) {
+            byte[] bytes = e.getBytes(true);
+            if (bytes != null) {
+                eis = new ByteArrayInputStream(bytes);
+            } else {
+                if (e.file != null) {
+                    eis = Files.newInputStream(e.file);
+                } else {
+                    throw new ResourceException("Entry data is missing");
+                }
+            }
+        } else {
+            if (e.type == Entry.FILE_CH) {
+                eis = Files.newInputStream(e.file);
+                return eis;
+            }
+        }
+        streams.add(eis);
+        return eis;
+    }
+
+    private OutputStream getOutputStream(Entry e) throws IOException {
+        e.getBytes(false);
+        if (e.lastModifiedTime == -1) {
+            e.lastModifiedTime = System.currentTimeMillis();
+        }
+        OutputStream os;
+        if (useTempFile) {
+            e.file = getTempPathForEntry(null);
+            os = Files.newOutputStream(e.file, WRITE);
+        } else {
+            os = new ByteArrayOutputStream((e.size > 0) ? e.size : 8192);
+        }
+        return new EntryOutputStream(e, os);
+    }
+
+    public InputStream newInputStream(byte[] path) throws IOException {
+        beginRead();
+        try {
+            ensureOpen();
+            Entry entry = getEntry(path);
+            if (entry == null) {
+                throw new NoSuchFileException(getString(path));
+            }
+            if (entry.isDir()) {
+                throw new FileSystemException(getString(path), "is a directory", null);
+            }
+            return getInputStream(entry);
+        } finally {
+            endRead();
+        }
+    }
+
+    public OutputStream newOutputStream(byte[] path, OpenOption... options) throws IOException {
+        boolean hasCreateNew = false;
+        boolean hasCreate = false;
+        boolean hasAppend = false;
+        boolean hasTruncate = false;
+        for (OpenOption opt : options) {
+            if (opt == READ) {
+                throw new IllegalArgumentException("READ not allowed!");
+            }
+            if (opt == CREATE_NEW) {
+                hasCreateNew = true;
+            }
+            if (opt == CREATE) {
+                hasCreate = true;
+            }
+            if (opt == APPEND) {
+                hasAppend = true;
+            }
+            if (opt == TRUNCATE_EXISTING) {
+                hasTruncate = true;
+            }
+        }
+
+        if (hasAppend && hasTruncate) {
+            throw new IllegalArgumentException("APPEND + TRUNCATE_EXISTING are not allowed!");
+        }
+
+        beginRead();                 // Only need a read lock, the update will
+        try {                        // try to obtain a write lock when the os is
+            ensureOpen();            // being closed.
+            Entry e = getEntry(path);
+            if (e != null) {
+                if (e.isDir() || hasCreateNew) {
+                    throw new FileAlreadyExistsException(getString(path));
+                }
+                if (hasAppend) {
+                    InputStream is = getInputStream(e);
+                    OutputStream os = getOutputStream(new Entry(e, Entry.NEW));
+                    is.transferTo(os);
+                    is.close();
+                    return os;
+                }
+                return getOutputStream(new Entry(e, Entry.NEW));
+            } else {
+                if (!hasCreate && !hasCreateNew) {
+                    throw new NoSuchFileException(getString(path));
+                }
+                checkParents(path);
+                return getOutputStream(new Entry(path, false));
+            }
+        } finally {
+            endRead();
+        }
+    }
+
+    public FileChannel newFileChannel(byte[] path, Set<? extends OpenOption> options, FileAttribute<?>... attrs) throws IOException {
+        checkOptions(options);
+        boolean forWrite = (options.contains(StandardOpenOption.WRITE) || options.contains(StandardOpenOption.APPEND));
+        beginRead();
+        try {
+            ensureOpen();
+            Entry e = getEntry(path);
+            if (forWrite) {
+                if (e == null) {
+                    if (!options.contains(StandardOpenOption.CREATE) && !options.contains(StandardOpenOption.CREATE_NEW)) {
+                        throw new NoSuchFileException(getString(path));
+                    }
+                } else {
+                    if (options.contains(StandardOpenOption.CREATE_NEW)) {
+                        throw new FileAlreadyExistsException(getString(path));
+                    }
+                    if (e.isDir()) {
+                        throw new FileAlreadyExistsException("Directory <" + getString(path) + "> exists!");
+                    }
+                }
+                options = new HashSet<>(options);
+                options.remove(StandardOpenOption.CREATE_NEW);
+            } else if (e == null || e.isDir()) {
+                throw new NoSuchFileException(getString(path));
+            }
+
+            final boolean isFCH = (e != null && e.type == Entry.FILE_CH);
+            final Path tmpFile = isFCH ? e.file : getTempPathForEntry(path);
+            final FileChannel fch = tmpFile.getFileSystem().provider().newFileChannel(tmpFile, options, attrs);
+            final Entry target = isFCH ? e : new Entry(path, tmpFile, Entry.FILE_CH);
+            // TODO: Is there a better way to hook into the FileChannel's close method?
+            return new FileChannel() {
+
+                @Override
+                public int write(ByteBuffer src) throws IOException {
+                    return fch.write(src);
+                }
+
+                @Override
+                public long write(ByteBuffer[] src, int offset, int length) throws IOException {
+                    return fch.write(src, offset, length);
+                }
+
+                @Override
+                public long position() throws IOException {
+                    return fch.position();
+                }
+
+                @Override
+                public FileChannel position(long newPosition) throws IOException {
+                    fch.position(newPosition);
+                    return this;
+                }
+
+                @Override
+                public long size() throws IOException {
+                    return fch.size();
+                }
+
+                @Override
+                public FileChannel truncate(long size) throws IOException {
+                    fch.truncate(size);
+                    return this;
+                }
+
+                @Override
+                public void force(boolean metaData) throws IOException {
+                    fch.force(metaData);
+                }
+
+                @Override
+                public long transferTo(long position, long count, WritableByteChannel target) throws IOException {
+                    return fch.transferTo(position, count, target);
+                }
+
+                @Override
+                public long transferFrom(ReadableByteChannel src, long position, long count) throws IOException {
+                    return fch.transferFrom(src, position, count);
+                }
+
+                @Override
+                public int read(ByteBuffer dst) throws IOException {
+                    return fch.read(dst);
+                }
+
+                @Override
+                public int read(ByteBuffer dst, long position) throws IOException {
+                    return fch.read(dst, position);
+                }
+
+                @Override
+                public long read(ByteBuffer[] dst, int offset, int length) throws IOException {
+                    return fch.read(dst, offset, length);
+                }
+
+                @Override
+                public int write(ByteBuffer src, long position) throws IOException {
+                    return fch.write(src, position);
+                }
+
+                @Override
+                public MappedByteBuffer map(MapMode mode, long position, long size) {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public FileLock lock(long position, long size, boolean shared) throws IOException {
+                    return fch.lock(position, size, shared);
+                }
+
+                @Override
+                public FileLock tryLock(long position, long size, boolean shared) throws IOException {
+                    return fch.tryLock(position, size, shared);
+                }
+
+                @Override
+                protected void implCloseChannel() throws IOException {
+                    fch.close();
+                    if (forWrite) {
+                        target.lastModifiedTime = System.currentTimeMillis();
+                        target.size = (int) Files.size(target.file);
+
+                        update(target);
+                    } else {
+                        if (!isFCH) {
+                            removeTempPathForEntry(tmpFile);
+                        }
+                    }
+                }
+            };
+        } finally {
+            endRead();
         }
     }
 
@@ -803,38 +1079,133 @@ public class ResourceFileSystem extends FileSystem {
         private static final int FILE_CH = 2;   // File channel update in file.
         private static final int COPY = 3;      // Copy entry.
 
-        private int size;
+        public int size;
         public int type;
         public long lastModifiedTime;
         public long lastAccessTime;
         public long createTime;
 
-        public Entry(byte[] name, int size) {
-            name(name);
-            this.size = size;
+        private boolean copyOnWrite;
+        private byte[] bytes;
+        public Path file;
+
+        public Entry(byte[] name, Path file, int type) {
+            this(name, type, false);
+            this.file = file;
+        }
+
+        public void initTimes() {
             this.lastModifiedTime = this.lastAccessTime = this.createTime = ResourceFileSystem.this.defaultTimeStamp;
+        }
+
+        public void initData() {
+            this.bytes = ResourceStorage.getBytes(getString(name), true);
+            this.size = !isDir ? this.bytes.length : 0;
+        }
+
+        public byte[] getBytes(boolean readOnly) {
+            if (!readOnly) {
+                // Copy On Write technique.
+                if (!copyOnWrite) {
+                    copyOnWrite = true;
+                    this.bytes = ResourceStorage.getBytes(getString(name), false);
+                }
+            }
+            return this.bytes;
         }
 
         public Entry(byte[] name, boolean isDir) {
             name(name);
             this.type = Entry.NEW;
             this.isDir = isDir;
-            this.lastModifiedTime = this.lastAccessTime = this.createTime = ResourceFileSystem.this.defaultTimeStamp;
+            initData();
+            initTimes();
         }
 
         public Entry(byte[] name, int type, boolean isDir) {
             name(name);
             this.type = type;
             this.isDir = isDir;
+            initData();
+            initTimes();
+        }
+
+        public Entry(Entry other, int type) {
+            name(other.name);
+            this.lastModifiedTime = other.lastModifiedTime;
+            this.lastAccessTime = other.lastAccessTime;
+            this.createTime = other.createTime;
+            this.isDir = other.isDir;
+            this.size = other.size;
+            this.bytes = other.bytes;
+            this.type = type;
         }
 
         public boolean isDirectory() {
             return isDir;
         }
 
-        // TODO: Maybe it will be better to do this in another way.
         public long size() {
-            return !isDir ? size : 0;
+            return size;
+        }
+    }
+
+    class EntryOutputChannel extends ByteArrayChannel {
+
+        Entry e;
+
+        EntryOutputChannel(Entry e) {
+            super(e.size > 0 ? e.size : 8192, false);
+            this.e = e;
+            if (e.lastModifiedTime == -1) {
+                e.lastModifiedTime = System.currentTimeMillis();
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            // This will update entry.
+            try (OutputStream os = getOutputStream(e)) {
+                os.write(toByteArray());
+            }
+            super.close();
+        }
+    }
+
+    private class EntryOutputStream extends FilterOutputStream {
+        private final Entry e;
+        private int written;
+        private boolean isClosed;
+
+        EntryOutputStream(Entry e, OutputStream os) throws IOException {
+            super(os);
+            this.e = Objects.requireNonNull(e, "Entry is null!");
+        }
+
+        @Override
+        public synchronized void write(int b) throws IOException {
+            out.write(b);
+            written += 1;
+        }
+
+        @Override
+        public synchronized void write(byte[] b, int off, int len) throws IOException {
+            out.write(b, off, len);
+            written += len;
+        }
+
+        @Override
+        public synchronized void close() throws IOException {
+            if (isClosed) {
+                return;
+            }
+            isClosed = true;
+            e.size = written;
+            if (out instanceof ByteArrayOutputStream) {
+                e.bytes = ((ByteArrayOutputStream) out).toByteArray();
+            }
+            super.close();
+            update(e);
         }
     }
 }

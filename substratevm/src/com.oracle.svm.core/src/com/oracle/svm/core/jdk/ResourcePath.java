@@ -2,13 +2,18 @@ package com.oracle.svm.core.jdk;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.channels.FileChannel;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.AccessMode;
 import java.nio.file.CopyOption;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.DirectoryStream;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
@@ -21,6 +26,7 @@ import java.nio.file.ReadOnlyFileSystemException;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
+import java.nio.file.attribute.BasicFileAttributeView;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.FileTime;
 import java.util.Arrays;
@@ -28,6 +34,13 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
+
+import static java.nio.file.StandardCopyOption.COPY_ATTRIBUTES;
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 public class ResourcePath implements Path {
 
@@ -450,7 +463,7 @@ public class ResourcePath implements Path {
         return fileSystem.getString(path);
     }
 
-    public SeekableByteChannel newByteChannel(Set<? extends OpenOption> options, FileAttribute<?>[] attrs) throws NoSuchFileException {
+    public SeekableByteChannel newByteChannel(Set<? extends OpenOption> options, FileAttribute<?>[] attrs) throws IOException {
         return fileSystem.newByteChannel(getResolvedPath(), options, attrs);
     }
 
@@ -662,7 +675,7 @@ public class ResourcePath implements Path {
         return Arrays.equals(this.getResolvedPath(), ((ResourcePath) other).getResolvedPath());
     }
 
-    public void checkAccess(AccessMode[] modes) throws IOException {
+    public void checkAccess(AccessMode... modes) throws IOException {
         boolean x = false;
         for (AccessMode mode : modes) {
             switch (mode) {
@@ -682,7 +695,7 @@ public class ResourcePath implements Path {
         }
     }
 
-    public void setAttribute(String attribute, Object value, LinkOption[] options) throws IOException {
+    public void setAttribute(String attribute, Object value, LinkOption... options) throws IOException {
         String type;
         String attr;
         int colonPos = attribute.indexOf(':');
@@ -704,7 +717,7 @@ public class ResourcePath implements Path {
         fileSystem.setTimes(getResolvedPath(), lastModifiedTime, lastAccessTime, createTime);
     }
 
-    public void createDirectory(FileAttribute<?>[] attrs) throws IOException {
+    public void createDirectory(FileAttribute<?>... attrs) throws IOException {
         fileSystem.createDirectory(getResolvedPath(), attrs);
     }
 
@@ -716,7 +729,7 @@ public class ResourcePath implements Path {
         return fileSystem.deleteFile(getResolvedPath(), false);
     }
 
-    public void move(ResourcePath target, CopyOption[] options) throws IOException {
+    public void move(ResourcePath target, CopyOption... options) throws IOException {
         if (Files.isSameFile(this.fileSystem.getResourcePath(), target.fileSystem.getResourcePath())) {
             fileSystem.copyFile(true, getResolvedPath(), target.getResolvedPath(), options);
         } else {
@@ -725,7 +738,7 @@ public class ResourcePath implements Path {
         }
     }
 
-    public void copy(ResourcePath target, CopyOption[] options) throws IOException {
+    public void copy(ResourcePath target, CopyOption... options) throws IOException {
         if (Files.isSameFile(this.fileSystem.getResourcePath(), target.fileSystem.getResourcePath())) {
             fileSystem.copyFile(false, getResolvedPath(), target.getResolvedPath(), options);
         } else {
@@ -733,7 +746,83 @@ public class ResourcePath implements Path {
         }
     }
 
-    // TODO: Implementation.
-    private void copyToTarget(ResourcePath target, CopyOption[] options) {
+    private void copyToTarget(ResourcePath target, CopyOption... options) throws IOException {
+        boolean replaceExisting = false;
+        boolean copyAttrs = false;
+        for (CopyOption opt : options) {
+            if (opt == REPLACE_EXISTING) {
+                replaceExisting = true;
+            } else if (opt == COPY_ATTRIBUTES) {
+                copyAttrs = true;
+            }
+        }
+        // Attributes of source file.
+        ResourceAttributes resourceAttributes = getAttributes();
+
+        // Check if target exists.
+        boolean exists;
+        if (replaceExisting) {
+            try {
+                target.deleteIfExists();
+                exists = false;
+            } catch (DirectoryNotEmptyException x) {
+                exists = true;
+            }
+        } else {
+            exists = target.exists();
+        }
+        if (exists) {
+            throw new FileAlreadyExistsException(target.toString());
+        }
+
+        if (resourceAttributes.isDirectory()) {
+            // Create directory or file.
+            target.createDirectory();
+        } else {
+            try (InputStream is = fileSystem.newInputStream(getResolvedPath())) {
+                try (OutputStream os = target.newOutputStream()) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = is.read(buf)) != -1) {
+                        os.write(buf, 0, n);
+                    }
+                }
+            }
+        }
+        if (copyAttrs) {
+            BasicFileAttributeView attributeView = ResourceAttributesView.get(target, BasicFileAttributeView.class);
+            try {
+                attributeView.setTimes(resourceAttributes.lastModifiedTime(), resourceAttributes.lastAccessTime(),
+                        resourceAttributes.creationTime());
+            } catch (IOException e) {
+                try {
+                    target.delete();
+                } catch (IOException ignore) {
+                }
+                throw e;
+            }
+        }
+    }
+
+    public InputStream newInputStream(OpenOption... options) throws IOException {
+        // TODO: Is this check sufficient?
+        if (options.length > 0) {
+            for (OpenOption opt : options) {
+                if (opt != READ)
+                    throw new UnsupportedOperationException("'" + opt + "' not allowed");
+            }
+        }
+        return fileSystem.newInputStream(getResolvedPath());
+    }
+
+    public OutputStream newOutputStream(OpenOption... options) throws IOException {
+        if (options.length == 0) {
+            return fileSystem.newOutputStream(getResolvedPath(), CREATE, TRUNCATE_EXISTING, WRITE);
+        }
+        return fileSystem.newOutputStream(getResolvedPath(), options);
+    }
+
+    public FileChannel newFileChannel(Set<? extends OpenOption> options, FileAttribute<?>... attrs) throws IOException {
+        return fileSystem.newFileChannel(getResolvedPath(), options, attrs);
     }
 }
