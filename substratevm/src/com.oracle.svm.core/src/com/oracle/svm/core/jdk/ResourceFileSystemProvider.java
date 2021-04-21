@@ -65,31 +65,34 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
         return "resource";
     }
 
-    // TODO: Need further testing.
     @Override
-    public FileSystem newFileSystem(URI uri, Map<String, ?> env) {
+    public FileSystem newFileSystem(URI uri, Map<String, ?> env) throws IOException {
         Path path = uriToPath(uri);
         synchronized (filesystems) {
-            if (filesystems.containsKey(path)) {
+            Path realPath = path.toRealPath();
+            if (filesystems.containsKey(realPath)) {
                 throw new FileSystemAlreadyExistsException();
             }
             ResourceFileSystem resourceFileSystem = new ResourceFileSystem(this, path, env);
-            filesystems.put(path, resourceFileSystem);
+            filesystems.put(realPath, resourceFileSystem);
             return resourceFileSystem;
         }
     }
 
-    // TODO: Implementation.
     @Override
-    public FileSystem newFileSystem(Path path, Map<String, ?> env) throws IOException {
-        return super.newFileSystem(path, env);
+    public FileSystem newFileSystem(Path path, Map<String, ?> env) {
+        return new ResourceFileSystem(this, path, env);
     }
 
-    // TODO: Need further testing.
     @Override
     public FileSystem getFileSystem(URI uri) {
         synchronized (filesystems) {
-            ResourceFileSystem resourceFileSystem = filesystems.get(uriToPath(uri));
+            ResourceFileSystem resourceFileSystem;
+            try {
+                resourceFileSystem = filesystems.get(uriToPath(uri).toRealPath());
+            } catch (IOException e) {
+                throw new FileSystemNotFoundException();
+            }
             if (resourceFileSystem == null) {
                 throw new FileSystemNotFoundException();
             }
@@ -102,7 +105,8 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
         String spec = uri.getSchemeSpecificPart();
         int sep = spec.indexOf("!/");
         if (sep == -1) {
-            throw new IllegalArgumentException("URI: " + uri + " does not contain path info ex. resource:foo.jar!/bar.txt");
+            throw new IllegalArgumentException("URI: " + uri +
+                    " does not contain path info ex. resource:file:/foo.jar!/bar.txt");
         }
         return getFileSystem(uri).getPath(spec.substring(sep + 1));
     }
@@ -149,10 +153,9 @@ public class ResourceFileSystemProvider extends FileSystemProvider {
 
     @Override
     public boolean isHidden(Path path) {
-        return false;
+        return toResourcePath(path).isHidden();
     }
 
-    // TODO: Implement FileStore.
     @Override
     public FileStore getFileStore(Path path) throws IOException {
         return toResourcePath(path).getFileStore();

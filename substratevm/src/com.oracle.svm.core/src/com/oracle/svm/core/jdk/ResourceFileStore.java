@@ -60,23 +60,26 @@ public class ResourceFileStore extends FileStore {
 
     @Override
     public <V extends FileStoreAttributeView> V getFileStoreAttributeView(Class<V> type) {
-        if (type == null)
+        if (type == null) {
             throw new NullPointerException();
+        }
         return null;
     }
 
     @Override
     public Object getAttribute(String attribute) throws IOException {
-        if (attribute.equals("totalSpace"))
+        if (attribute.equals("totalSpace")) {
             return getTotalSpace();
-        if (attribute.equals("usableSpace"))
+        }
+        if (attribute.equals("usableSpace")) {
             return getUsableSpace();
-        if (attribute.equals("unallocatedSpace"))
+        }
+        if (attribute.equals("unallocatedSpace")) {
             return getUnallocatedSpace();
+        }
         throw new UnsupportedOperationException("Attribute isn't supported!");
     }
 
-    // TODO: Need enhancements.
     private static class ResourceFileStoreAttributes {
         private final FileStore fileStore;
         private final long size;
@@ -92,11 +95,11 @@ public class ResourceFileStore extends FileStore {
         }
 
         public long usableSpace() throws IOException {
-            return 0;
+            return fileStore.getUsableSpace();
         }
 
         public long unallocatedSpace() throws IOException {
-            return 0;
+            return fileStore.getUnallocatedSpace();
         }
     }
 }

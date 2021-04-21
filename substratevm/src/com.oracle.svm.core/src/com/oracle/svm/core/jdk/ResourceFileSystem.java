@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.ClosedFileSystemException;
 import java.nio.file.CopyOption;
 import java.nio.file.DirectoryNotEmptyException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileStore;
 import java.nio.file.FileSystem;
@@ -26,6 +27,7 @@ import java.nio.file.FileSystemException;
 import java.nio.file.FileSystemNotFoundException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
+import java.nio.file.NotDirectoryException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
@@ -39,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +51,7 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Pattern;
 
+import static com.oracle.svm.core.jdk.ResourceFileSystemUtil.toRegexPattern;
 import static java.lang.Boolean.TRUE;
 import static java.nio.file.StandardCopyOption.COPY_ATTRIBUTES;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
@@ -58,7 +62,6 @@ import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
 
-// TODO: Add support for encoding/decoding based on env parameter.
 public class ResourceFileSystem extends FileSystem {
 
     private static final String GLOB_SYNTAX = "glob";
@@ -81,7 +84,7 @@ public class ResourceFileSystem extends FileSystem {
 
     private static final byte[] ROOT_PATH = new byte[]{'/'};
     private final IndexNode LOOKUP_KEY = new IndexNode(null, true);
-    LinkedHashMap<IndexNode, IndexNode> inodes = new LinkedHashMap<>(10);
+    private final LinkedHashMap<IndexNode, IndexNode> inodes = new LinkedHashMap<>(10);
 
     public ResourceFileSystem(ResourceFileSystemProvider provider, Path resourcePath, Map<String, ?> env) {
         this.provider = provider;
@@ -94,7 +97,7 @@ public class ResourceFileSystem extends FileSystem {
         readAllEntries();
     }
 
-    // returns true if there is a name=true/"true" setting in env
+    // Returns true if there is a name=true/"true" setting in env.
     private static boolean isTrue(Map<String, ?> env, String name) {
         return "true".equals(env.get(name)) || TRUE.equals(env.get(name));
     }
@@ -217,12 +220,6 @@ public class ResourceFileSystem extends FileSystem {
         return new ResourcePath(this, getBytes(path));
     }
 
-    // TODO: Implementation.
-    public static String toRegexPattern(String globPattern) {
-        return null;
-    }
-
-    // TODO: Test this method.
     @Override
     public PathMatcher getPathMatcher(String syntaxAndPattern) {
         int pos = syntaxAndPattern.indexOf(':');
@@ -285,11 +282,10 @@ public class ResourceFileSystem extends FileSystem {
         }
     }
 
-    // TODO: Need enhancement.
     public SeekableByteChannel newByteChannel(byte[] path, Set<? extends OpenOption> options, FileAttribute<?>[] attrs) throws IOException {
         checkOptions(options);
         if (options.contains(StandardOpenOption.WRITE) || options.contains(StandardOpenOption.APPEND)) {
-            beginRead();    // only need a read lock, the "update()" will obtain the write lock when the channel is closed
+            beginRead();    // Only need a read lock, the "update()" will obtain the write lock when the channel is closed.
             try {
                 Entry e = getEntry(path);
                 if (e != null) {
@@ -672,24 +668,6 @@ public class ResourceFileSystem extends FileSystem {
         }
     }
 
-    // Temporary, for debug purpose.
-    void printTree() {
-        System.out.println(">>> Tree...");
-        IndexNode node = inodes.get(LOOKUP_KEY.as(ROOT_PATH));
-        node = node.child;
-        ArrayList<IndexNode> queue = new ArrayList<>();
-        queue.add(node);
-        while (!queue.isEmpty()) {
-            node = queue.remove(0);
-            while (node != null) {
-                System.out.println(getString(node.name) + " " + node.isDir);
-                queue.add(node.child);
-                node = node.sibling;
-            }
-            System.out.println("------");
-        }
-    }
-
     private InputStream getInputStream(Entry e) throws IOException {
         InputStream eis = null;
         if (e.type == Entry.NEW) {
@@ -830,7 +808,6 @@ public class ResourceFileSystem extends FileSystem {
             final Path tmpFile = isFCH ? e.file : getTempPathForEntry(path);
             final FileChannel fch = tmpFile.getFileSystem().provider().newFileChannel(tmpFile, options, attrs);
             final Entry target = isFCH ? e : new Entry(path, tmpFile, Entry.FILE_CH);
-            // TODO: Is there a better way to hook into the FileChannel's close method?
             return new FileChannel() {
 
                 @Override
@@ -932,6 +909,32 @@ public class ResourceFileSystem extends FileSystem {
             };
         } finally {
             endRead();
+        }
+    }
+
+    Iterator<Path> iteratorOf(ResourcePath dir, DirectoryStream.Filter<? super Path> filter) throws IOException {
+        beginWrite();
+        try {
+            ensureOpen();
+            byte[] path = dir.getResolvedPath();
+            IndexNode inode = getInode(path);
+            if (inode == null) {
+                throw new NotDirectoryException(getString(path));
+            }
+            List<Path> list = new ArrayList<>();
+            IndexNode child = inode.child;
+            while (child != null) {
+                byte[] childName = child.name;
+                ResourcePath childPath = new ResourcePath(this, childName, true);
+                Path childFileName = childPath.getFileName();
+                Path resourcePath = dir.resolve(childFileName);
+                if (filter == null || filter.accept(resourcePath))
+                    list.add(resourcePath);
+                child = child.sibling;
+            }
+            return list.iterator();
+        } finally {
+            endWrite();
         }
     }
 
@@ -1177,7 +1180,7 @@ public class ResourceFileSystem extends FileSystem {
         private int written;
         private boolean isClosed;
 
-        EntryOutputStream(Entry e, OutputStream os) throws IOException {
+        EntryOutputStream(Entry e, OutputStream os) {
             super(os);
             this.e = Objects.requireNonNull(e, "Entry is null!");
         }

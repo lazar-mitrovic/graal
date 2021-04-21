@@ -71,7 +71,7 @@ public class ByteArrayChannel implements SeekableByteChannel {
             if (pos < 0 || pos >= Integer.MAX_VALUE) {
                 throw new IllegalArgumentException("Illegal position " + pos);
             }
-            this.pos = Math.min((int)pos, last);
+            this.pos = Math.min((int) pos, last);
             return this;
         } finally {
             endWrite();
@@ -141,7 +141,7 @@ public class ByteArrayChannel implements SeekableByteChannel {
         if (closed) {
             return;
         }
-        System.out.println("Close method!");
+
         beginWrite();
         try {
             closed = true;

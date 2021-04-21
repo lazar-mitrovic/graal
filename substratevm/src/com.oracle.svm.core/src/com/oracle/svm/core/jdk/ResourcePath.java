@@ -165,8 +165,9 @@ public class ResourcePath implements Path {
         int len;
         if (index == (offsets.length - 1)) {
             len = path.length - begin;
-        } else
+        } else {
             len = offsets[index + 1] - begin - 1;
+        }
 
         byte[] result = new byte[len];
         System.arraycopy(path, begin, result, 0, len);
@@ -317,7 +318,7 @@ public class ResourcePath implements Path {
         if (p1.isAbsolute() != p2.isAbsolute()) {
             throw new IllegalArgumentException();
         }
-        // Check how many segments are common
+        // Check how many segments are common.
         int nbNames1 = p1.getNameCount();
         int nbNames2 = p2.getNameCount();
         int l = Math.min(nbNames1, nbNames2);
@@ -326,12 +327,12 @@ public class ResourcePath implements Path {
             nbCommon++;
         }
         int nbUp = nbNames1 - nbCommon;
-        // Compute the resulting length
+        // Compute the resulting length.
         int length = nbUp * 3 - 1;
         if (nbCommon < nbNames2) {
             length += p2.path.length - p2.offsets[nbCommon] + 1;
         }
-        // Compute result
+        // Compute result.
         byte[] result = new byte[length];
         int idx = 0;
         while (nbUp-- > 0) {
@@ -341,7 +342,7 @@ public class ResourcePath implements Path {
                 result[idx++] = '/';
             }
         }
-        // Copy remaining segments
+        // Copy remaining segments.
         if (nbCommon < nbNames2) {
             System.arraycopy(p2.path, p2.offsets[nbCommon], result, idx, p2.path.length - p2.offsets[nbCommon]);
         }
@@ -805,7 +806,6 @@ public class ResourcePath implements Path {
     }
 
     public InputStream newInputStream(OpenOption... options) throws IOException {
-        // TODO: Is this check sufficient?
         if (options.length > 0) {
             for (OpenOption opt : options) {
                 if (opt != READ)
@@ -824,5 +824,9 @@ public class ResourcePath implements Path {
 
     public FileChannel newFileChannel(Set<? extends OpenOption> options, FileAttribute<?>... attrs) throws IOException {
         return fileSystem.newFileChannel(getResolvedPath(), options, attrs);
+    }
+
+    public boolean isHidden() {
+        return false;
     }
 }
