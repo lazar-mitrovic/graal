@@ -59,7 +59,7 @@ import com.oracle.svm.core.annotate.AutomaticFeature;
 import com.oracle.svm.core.configure.ConfigurationFiles;
 import com.oracle.svm.core.configure.ResourceConfigurationParser;
 import com.oracle.svm.core.configure.ResourcesRegistry;
-import com.oracle.svm.core.jdk.LocalizationFeature;
+import com.oracle.svm.core.jdk.localization.LocalizationFeature;
 import com.oracle.svm.core.jdk.ResourceAttributes;
 import com.oracle.svm.core.jdk.ResourceAttributesView;
 import com.oracle.svm.core.jdk.ResourceFileSystem;
